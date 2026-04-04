@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  hadoop1:
+    build: .                   # 使用当前目录的 Dockerfile 构建镜像
+    container_name: hadoop1    # 明确指定容器名称
+    hostname: hadoop1          # 明确指定主机名
+    ports:
+      - "50070:50070"          # NameNode Web UI
+      - "9000:9000"            # NameNode RPC 通信端口
+    networks:
+      - hadoop-net
+    privileged: true           # 赋予较高权限，确保 sshd 等底层服务运行无阻
+
+  hadoop2:
+    build: .
+    container_name: hadoop2
+    hostname: hadoop2
+    ports:
+      - "8088:8088"            # YARN ResourceManager Web UI
+    networks:
+      - hadoop-net
+    privileged: true
+
+  hadoop3:
+    build: .
+    container_name: hadoop3
+    hostname: hadoop3
+    ports:
+      - "50090:50090"          # SecondaryNameNode Web UI
+      - "19888:19888"          # JobHistoryServer Web UI
+    networks:
+      - hadoop-net
+    privileged: true
+
+networks:
+  hadoop-net:
+    driver: bridge             # 使用默认的桥接网络，容器间可以通过主机名互相访问
