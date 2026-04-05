@@ -4,7 +4,7 @@
 ![Hadoop](https://img.shields.io/badge/Hadoop-3.3.4-yellow.svg?logo=apache)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
 
-本项目通过 Docker 和 Docker Compose，基于 Ubuntu 22.04 镜像，一键快速构建 Hadoop 3.3.4 完全分布式集群。适合作为大数据入门学习、实验环境搭建以及集群测试使用。
+本项目通过 Docker 和 Docker Compose，基于 Ubuntu 22.04 镜像，一键快速构建 Hadoop 3.3.4 完全分布式集群。适合作为大数据入门学习、实验环境搭建以及集群测试使用。\
 这也是我的第一个Git项目，正在学习关于Linux，Git，Hadoop，Docker的知识，希望能和大家一起进步！
 
 ## 🏗️ 集群架构设计
@@ -18,6 +18,18 @@
 | **hadoop3** | `SecondaryNameNode`, `JobHistoryServer`, `DataNode` |
 
 > **提示**：由于 3 个容器是基于同一个 Docker 镜像构建的，它们在构建阶段生成了相同的 SSH 密钥对，因此天然支持节点间的 root 免密登录，无需额外配置。
+
+---
+## 🌐 端口映射说明
+集群启动后，可以直接在宿主机（Windows/Mac）的浏览器中访问以下 Hadoop 原生 Web UI 界面：
+
+HDFS NameNode 面板: http://localhost:50070
+
+YARN 资源管理面板: http://localhost:8088
+
+SecondaryNameNode: http://localhost:50090
+
+JobHistory 面板: http://localhost:19888
 
 ---
 
@@ -40,15 +52,19 @@ docker compose up -d --build
 ```bash!
 docker exec -it hadoop1 bash
 ```
-在 hadoop1 内部，执行格式化并启动所有服务
+在 hadoop1 内部，执行格式化并启动HDFS
 ```bash!
 # 格式化 NameNode（仅首次启动需要）
 hdfs namenode -format
 
-# 启动 HDFS 和 YARN 集群
 start-dfs.sh
+```
+在 hadoop2 内部， 启动YARN
+```bash!
 start-yarn.sh
-
-# （可选）启动历史服务器
+```
+（可选）在 hadoop3 内部， 启动历史服务器
+```bash
 mapred --daemon start historyserver
 ```
+记得使用jps来检查进程是否生效哦~

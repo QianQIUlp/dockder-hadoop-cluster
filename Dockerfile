@@ -1,3 +1,19 @@
+#
+# Copyright 2026 qianqiulp
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 # ==============================================================================
 # Ubuntu 22.04 国内记得使用镜像加速
 # ==============================================================================
@@ -7,12 +23,12 @@ FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 # ==============================================================================
-# System Dependencies & Mirror Configuration
+# System Dependencies
 # 替换为阿里云镜像源并安装基础依赖
 # ==============================================================================
-RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
-    sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
-    apt-get update && \
+#RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+#    sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         curl wget git vim openssh-server openjdk-8-jdk net-tools telnet iputils-ping && \
     # 生成 SSH 主机密钥 (供 sshd 服务使用)
@@ -27,13 +43,15 @@ ENV PATH=$PATH:$JAVA_HOME/bin
 
 # ==============================================================================
 # Hadoop Installation
-# 从华为开源镜像站拉取 Hadoop 3.3.4
+# Default: Apache official archive. (Global)
+# For users in China: Use Huawei Cloud mirror for faster download.
+# https://repo.huaweicloud.com/apache/hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz
 # ==============================================================================
 ENV HADOOP_VERSION=3.3.4
 ENV HADOOP_HOME=/opt/hadoop-${HADOOP_VERSION}
 ENV PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
 
-RUN wget -q -P /opt https://repo.huaweicloud.com/apache/hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz && \
+RUN wget -q -P /opt https://archive.apache.org/dist/hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz && \
     tar -zxvf /opt/hadoop-${HADOOP_VERSION}.tar.gz -C /opt && \
     rm -rf /opt/*.tar.gz
 
