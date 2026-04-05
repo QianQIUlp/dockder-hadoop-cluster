@@ -2,16 +2,16 @@ version: "3.8"
 
 services:
   hadoop1:
-    build: .                   # 使用当前目录的 Dockerfile 构建镜像
+    build: .                   # Build image from current directory | 使用当前目录的 Dockerfile 构建镜像
     image: hadoop-cluster:3.3.4
-    container_name: hadoop1    # 明确指定容器名称
-    hostname: hadoop1          # 明确指定主机名
+    container_name: hadoop1    # Specify container name | 明确指定容器名称
+    hostname: hadoop1          # Specify hostname | 明确指定主机名
     ports:
-      - "50070:50070"          # NameNode Web UI
-      - "9000:9000"            # NameNode RPC 通信端口
+      - "50070:50070"          # NameNode Web UI | NameNode Web UI 面板
+      - "9000:9000"            # NameNode RPC port | NameNode RPC 通信端口
     networks:
       - hadoop-net
-    privileged: true           # 赋予较高权限，确保 sshd 等底层服务运行无阻
+    privileged: true           # Grant high privileges for sshd | 赋予较高权限，确保 sshd 等底层服务运行无阻
 
   hadoop2:
     build: .
@@ -19,7 +19,7 @@ services:
     container_name: hadoop2
     hostname: hadoop2
     ports:
-      - "8088:8088"            # YARN ResourceManager Web UI
+      - "8088:8088"            # YARN ResourceManager Web UI | YARN 资源管理 Web UI 面板
     networks:
       - hadoop-net
     privileged: true
@@ -30,12 +30,12 @@ services:
     container_name: hadoop3
     hostname: hadoop3
     ports:
-      - "50090:50090"          # SecondaryNameNode Web UI
-      - "19888:19888"          # JobHistoryServer Web UI
+      - "50090:50090"          # SecondaryNameNode Web UI | SecondaryNameNode Web UI 面板
+      - "19888:19888"          # JobHistoryServer Web UI | 历史服务器 Web UI 面板
     networks:
       - hadoop-net
     privileged: true
 
 networks:
   hadoop-net:
-    driver: bridge             # 使用默认的桥接网络，容器间可以通过主机名互相访问
+    driver: bridge             # Use default bridge network for hostname resolution | 使用默认的桥接网络，容器间可以通过主机名互相访问
