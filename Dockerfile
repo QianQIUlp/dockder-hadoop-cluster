@@ -50,9 +50,14 @@ RUN echo "export JAVA_HOME=${JAVA_HOME}" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env
     echo "export YARN_RESOURCEMANAGER_USER=root" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh && \
     echo "export YARN_NODEMANAGER_USER=root" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh
 
+# 将环境变量同步到 /etc/profile 中，确保 SSH 登录不同容器后也能加载
+RUN echo "export JAVA_HOME=${JAVA_HOME}" >> /etc/profile && \
+    echo "export HADOOP_HOME=${HADOOP_HOME}" >> /etc/profile && \
+    echo "export PATH=\$PATH:${HADOOP_HOME}/bin:${HADOOP_HOME}/sbin" >> /etc/profile
+
 # 配置 XML 文件 
-RUN cat > ${HADOOP_HOME}/etc/hadoop/core-site.xml << EOF
 # 配置 core-site.xml，设置 Namenode 主机名为 hadoop1, 临时目录为tmp，允许root代理访问
+RUN cat > ${HADOOP_HOME}/etc/hadoop/core-site.xml << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
     <property><name>fs.defaultFS</name><value>hdfs://hadoop1:9000</value></property>

@@ -42,15 +42,13 @@ docker exec -it hadoop1 bash
 ```
 在 hadoop1 内部，执行格式化并启动所有服务
 ```bash!
-cd /opt/hadoop-3.3.4
-
 # 格式化 NameNode（仅首次启动需要）
-bin/hdfs namenode -format
+hdfs namenode -format
 
 # 启动 HDFS 和 YARN 集群
-sbin/start-dfs.sh
-sbin/start-yarn.sh
+start-dfs.sh
+start-yarn.sh
 
 # （可选）启动历史服务器
-sbin/mapred --daemon start historyserver
+mapred --daemon start historyserver
 ```
