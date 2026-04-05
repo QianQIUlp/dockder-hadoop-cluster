@@ -4,7 +4,8 @@
 ![Hadoop](https://img.shields.io/badge/Hadoop-3.3.4-yellow.svg?logo=apache)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
 
-本项目通过 Docker 和 Docker Compose，基于 Ubuntu 22.04 镜像，一键快速构建 Hadoop 3.3.4 完全分布式集群。适合作为大数据入门学习、实验环境搭建以及集群测试使用。这也是我的第一个Git项目，正在学习关于Linux，Git，Hadoop，Docker的知识，希望能和大家一起进步！
+本项目通过 Docker 和 Docker Compose，基于 Ubuntu 22.04 镜像，一键快速构建 Hadoop 3.3.4 完全分布式集群。适合作为大数据入门学习、实验环境搭建以及集群测试使用。
+这也是我的第一个Git项目，正在学习关于Linux，Git，Hadoop，Docker的知识，希望能和大家一起进步！
 
 ## 🏗️ 集群架构设计
 
@@ -28,3 +29,28 @@
 ```bash
 git clone git@github.com:你的用户名/docker-hadoop-cluster.git
 cd docker-hadoop-cluster
+```
+### 2. 一键构建并启动集群
+```bash!
+# 自动构建镜像并在后台拉起 3 个节点
+docker-compose up -d --build
+```
+### 3. 初始化并启动 Hadoop
+进入主节点 hadoop1 的终端：
+```bash!
+docker exec -it hadoop1 bash
+```
+在 hadoop1 内部，执行格式化并启动所有服务
+```bash!
+cd /opt/hadoop-3.3.4
+
+# 格式化 NameNode（仅首次启动需要）
+bin/hdfs namenode -format
+
+# 启动 HDFS 和 YARN 集群
+sbin/start-dfs.sh
+sbin/start-yarn.sh
+
+# （可选）启动历史服务器
+sbin/mapred --daemon start historyserver
+```
