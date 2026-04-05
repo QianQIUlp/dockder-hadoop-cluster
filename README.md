@@ -49,23 +49,23 @@ cd docker-hadoop-cluster
 docker compose up -d --build
 ```
 ### 3. 初始化并启动 Hadoop
-进入主节点 hadoop1 的终端：
+进入主节点 `hadoop1` 的终端：
 ```bash!
 docker exec -it hadoop1 bash
 ```
-在 hadoop1 内部，执行格式化并启动HDFS
+在 `hadoop1` 内部，执行格式化并启动HDFS
 ```bash!
 # 格式化 NameNode（仅首次启动需要）
 hdfs namenode -format
 
 start-dfs.sh
 ```
-在 hadoop2 内部， 启动YARN
+在 `hadoop2` 内部， 启动YARN
 ```bash!
 start-yarn.sh
 ```
-（可选）在 hadoop3 内部， 启动历史服务器
+（可选）在 `hadoop3` 内部， 启动历史服务器
 ```bash
 mapred --daemon start historyserver
 ```
-记得使用jps来检查进程是否生效哦~
+记得使用 `jps` 来检查进程是否生效哦~
