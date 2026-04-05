@@ -3,6 +3,7 @@ version: "3.8"
 services:
   hadoop1:
     build: .                   # 使用当前目录的 Dockerfile 构建镜像
+    image: hadoop-cluster:3.3.4
     container_name: hadoop1    # 明确指定容器名称
     hostname: hadoop1          # 明确指定主机名
     ports:
@@ -14,6 +15,7 @@ services:
 
   hadoop2:
     build: .
+    image: hadoop-cluster:3.3.4
     container_name: hadoop2
     hostname: hadoop2
     ports:
@@ -24,6 +26,7 @@ services:
 
   hadoop3:
     build: .
+    image: hadoop-cluster:3.3.4
     container_name: hadoop3
     hostname: hadoop3
     ports:

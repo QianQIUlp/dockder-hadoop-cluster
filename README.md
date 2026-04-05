@@ -33,7 +33,7 @@ cd docker-hadoop-cluster
 ### 2. 一键构建并启动集群
 ```bash!
 # 自动构建镜像并在后台拉起 3 个节点
-docker-compose up -d --build
+docker compose up -d --build
 ```
 ### 3. 初始化并启动 Hadoop
 进入主节点 hadoop1 的终端：
