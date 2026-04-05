@@ -1,6 +1,5 @@
 # ==============================================================================
-# Base Image
-# 使用 Ubuntu 22.04 LTS 作为底层系统
+# Ubuntu 22.04 国内记得使用镜像加速
 # ==============================================================================
 FROM ubuntu:22.04
 
@@ -18,12 +17,11 @@ RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && 
         curl wget git vim openssh-server openjdk-8-jdk net-tools telnet iputils-ping && \
     # 生成 SSH 主机密钥 (供 sshd 服务使用)
     ssh-keygen -A && \
-    # 提前创建 sshd 运行所需的运行时目录
+    # 提前创建 sshd 运行所需的运行时目录，这一步很重要，否则在集群启动 Hadoop 时除主机外的其他节点会因为无法创建/run/sshd目录而导致 sshd 启动失败
     mkdir -p /run/sshd && chmod 755 /run/sshd && \
-    # 清理 apt 缓存以缩减镜像体积
     rm -rf /var/lib/apt/lists/*
 
-# 设置 Java 环境变量
+# 配置Java环境变量（使用默认的路径）
 ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
 ENV PATH=$PATH:$JAVA_HOME/bin
 
@@ -41,9 +39,8 @@ RUN wget -q -P /opt https://repo.huaweicloud.com/apache/hadoop/common/hadoop-${H
 
 # ==============================================================================
 # Hadoop Configuration
-# 集中写入 Hadoop 的核心配置文件
 # ==============================================================================
-# 1. 配置 Hadoop 环境变量及 Root 运行权限许可
+# 配置 Hadoop 环境变量及 root 运行权限许可（默认下不允许root用户运行）
 RUN echo "export JAVA_HOME=${JAVA_HOME}" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh && \
     echo "export JAVA_HOME=${JAVA_HOME}" >> ${HADOOP_HOME}/etc/hadoop/yarn-env.sh && \
     echo "export JAVA_HOME=${JAVA_HOME}" >> ${HADOOP_HOME}/etc/hadoop/mapred-env.sh && \
@@ -53,8 +50,9 @@ RUN echo "export JAVA_HOME=${JAVA_HOME}" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env
     echo "export YARN_RESOURCEMANAGER_USER=root" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh && \
     echo "export YARN_NODEMANAGER_USER=root" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh
 
-# 2. 配置 XML 文件 (利用 EOF 语法直接写入内容)
+# 配置 XML 文件 
 RUN cat > ${HADOOP_HOME}/etc/hadoop/core-site.xml << EOF
+# 配置 core-site.xml，设置 Namenode 主机名为 hadoop1, 临时目录为tmp，允许root代理访问
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
     <property><name>fs.defaultFS</name><value>hdfs://hadoop1:9000</value></property>
@@ -64,6 +62,7 @@ RUN cat > ${HADOOP_HOME}/etc/hadoop/core-site.xml << EOF
 </configuration>
 EOF
 
+# 配置 hdfs-site.xml，副本数为3，配置 Namenode 和 Secondary Namenode 的 HTTP 地址
 RUN cat > ${HADOOP_HOME}/etc/hadoop/hdfs-site.xml << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
@@ -73,6 +72,7 @@ RUN cat > ${HADOOP_HOME}/etc/hadoop/hdfs-site.xml << EOF
 </configuration>
 EOF
 
+# 配置 yarn-site.xml，设置 ResourceManager 主机名为 hadoop2，启用日志聚合并配置相关参数
 RUN cat > ${HADOOP_HOME}/etc/hadoop/yarn-site.xml << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
@@ -86,6 +86,7 @@ RUN cat > ${HADOOP_HOME}/etc/hadoop/yarn-site.xml << EOF
 </configuration>
 EOF
 
+# 配置 mapred-site.xml，设置 MapReduce 框架为 YARN，配置 JobHistoryServer 的地址和端口，并设置 MapReduce 应用程序的类路径
 RUN cat > ${HADOOP_HOME}/etc/hadoop/mapred-site.xml << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
@@ -96,6 +97,7 @@ RUN cat > ${HADOOP_HOME}/etc/hadoop/mapred-site.xml << EOF
 </configuration>
 EOF
 
+# 配置 workers 文件，指定集群中的工作节点（DataNode 和 NodeManager）
 RUN cat > ${HADOOP_HOME}/etc/hadoop/workers << EOF
 hadoop1
 hadoop2
@@ -104,7 +106,6 @@ EOF
 
 # ==============================================================================
 # SSH & Security Configuration
-# 配置免密登录及修复 SSHD 行为
 # ==============================================================================
 RUN ssh-keygen -t rsa -f /root/.ssh/id_rsa -P "" && \
     cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys && \
@@ -118,5 +119,6 @@ RUN ssh-keygen -t rsa -f /root/.ssh/id_rsa -P "" && \
 # Entrypoint
 # 将 sshd 设置为主进程在前台运行，保持容器存活
 # ==============================================================================
+# 暴露 SSH、Hadoop Web UI 和 JobHistoryServer 端口 方便访问
 EXPOSE 22 9000 50070 8088 19888 50090
 CMD ["/usr/sbin/sshd", "-D"]
