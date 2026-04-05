@@ -1,4 +1,5 @@
 # 🐳 Docker-Hadoop-Cluster
+[简体中文](README.md) | [English](README_EN.md)
 
 ![Docker](https://img.shields.io/badge/Docker-Supported-blue.svg?logo=docker)
 ![Hadoop](https://img.shields.io/badge/Hadoop-3.3.4-yellow.svg?logo=apache)
