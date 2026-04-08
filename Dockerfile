@@ -1,60 +1,46 @@
-#
-# Copyright 2026 qianqiulp
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-
 # ==============================================================================
-# Base Image
-# 国内用户记得使用镜像加速
+# Ubuntu 22.04 国内记得使用镜像加速
 # ==============================================================================
 FROM ubuntu:22.04
 
-# Prevent interactive prompts during apt-get install | 设置环境变量，防止在 apt-get install 时出现交互式前台提示
+# 设置环境变量，防止在 apt-get install 时出现交互式前台提示
 ENV DEBIAN_FRONTEND=noninteractive
 
 # ==============================================================================
-# System Dependencies
-# Install basic tools and dependencies | 安装基础依赖
+# System Dependencies & Mirror Configuration
+# 替换为阿里云镜像源并安装基础依赖
 # ==============================================================================
-RUN apt-get update && \
+RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+    sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
         curl wget git vim openssh-server openjdk-8-jdk net-tools telnet iputils-ping && \
-    # Generate SSH host keys | 生成 SSH 主机密钥 (供 sshd 服务使用)
+    # 生成 SSH 主机密钥 (供 sshd 服务使用)
     ssh-keygen -A && \
-    # Create sshd run directory to prevent startup failures | 提前创建 sshd 运行时目录，防止集群其他节点 sshd 启动失败
+    # 提前创建 sshd 运行所需的运行时目录，这一步很重要，否则在集群启动 Hadoop 时除主机外的其他节点会因为无法创建/run/sshd目录而导致 sshd 启动失败
     mkdir -p /run/sshd && chmod 755 /run/sshd && \
     rm -rf /var/lib/apt/lists/*
 
-# Configure Java environment variables | 配置Java环境变量（使用默认的路径）
+# 配置Java环境变量（使用默认的路径）
 ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
 ENV PATH=$PATH:$JAVA_HOME/bin
 
 # ==============================================================================
 # Hadoop Installation
+# 从华为开源镜像站拉取 Hadoop 3.3.4
 # ==============================================================================
 ENV HADOOP_VERSION=3.3.4
 ENV HADOOP_HOME=/opt/hadoop-${HADOOP_VERSION}
 ENV PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
 
-RUN wget -q -P /opt https://archive.apache.org/dist/hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz && \
+RUN wget -q -P /opt https://repo.huaweicloud.com/apache/hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz && \
     tar -zxvf /opt/hadoop-${HADOOP_VERSION}.tar.gz -C /opt && \
     rm -rf /opt/*.tar.gz
 
 # ==============================================================================
 # Hadoop Configuration
 # ==============================================================================
-# Configure Hadoop env and allow root execution | 配置 Hadoop 环境变量及 root 运行权限许可
+# 配置 Hadoop 环境变量及 root 运行权限许可（默认下不允许root用户运行）
 RUN echo "export JAVA_HOME=${JAVA_HOME}" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh && \
     echo "export JAVA_HOME=${JAVA_HOME}" >> ${HADOOP_HOME}/etc/hadoop/yarn-env.sh && \
     echo "export JAVA_HOME=${JAVA_HOME}" >> ${HADOOP_HOME}/etc/hadoop/mapred-env.sh && \
@@ -64,12 +50,13 @@ RUN echo "export JAVA_HOME=${JAVA_HOME}" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env
     echo "export YARN_RESOURCEMANAGER_USER=root" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh && \
     echo "export YARN_NODEMANAGER_USER=root" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh
 
-# Sync env vars to /etc/profile for SSH logins | 将环境变量同步到 /etc/profile 中，确保 SSH 登录后也能加载
+# 将环境变量同步到 /etc/profile 中，确保 SSH 登录不同容器后也能加载
 RUN echo "export JAVA_HOME=${JAVA_HOME}" >> /etc/profile && \
     echo "export HADOOP_HOME=${HADOOP_HOME}" >> /etc/profile && \
     echo "export PATH=\$PATH:${HADOOP_HOME}/bin:${HADOOP_HOME}/sbin" >> /etc/profile
 
-# Configure core-site.xml: NameNode=hadoop1, temp dir, root proxy | 配置 core-site.xml
+# 配置 XML 文件 
+# 配置 core-site.xml，设置 Namenode 主机名为 hadoop1, 临时目录为tmp，允许root代理访问
 RUN cat > ${HADOOP_HOME}/etc/hadoop/core-site.xml << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
@@ -80,7 +67,7 @@ RUN cat > ${HADOOP_HOME}/etc/hadoop/core-site.xml << EOF
 </configuration>
 EOF
 
-# Configure hdfs-site.xml: replication=3, NN & 2NN HTTP addresses | 配置 hdfs-site.xml
+# 配置 hdfs-site.xml，副本数为3，配置 Namenode 和 Secondary Namenode 的 HTTP 地址
 RUN cat > ${HADOOP_HOME}/etc/hadoop/hdfs-site.xml << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
@@ -90,7 +77,7 @@ RUN cat > ${HADOOP_HOME}/etc/hadoop/hdfs-site.xml << EOF
 </configuration>
 EOF
 
-# Configure yarn-site.xml: RM=hadoop2, enable log aggregation | 配置 yarn-site.xml
+# 配置 yarn-site.xml，设置 ResourceManager 主机名为 hadoop2，启用日志聚合并配置相关参数
 RUN cat > ${HADOOP_HOME}/etc/hadoop/yarn-site.xml << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
@@ -104,7 +91,7 @@ RUN cat > ${HADOOP_HOME}/etc/hadoop/yarn-site.xml << EOF
 </configuration>
 EOF
 
-# Configure mapred-site.xml: MapReduce framework=YARN, JHS address | 配置 mapred-site.xml
+# 配置 mapred-site.xml，设置 MapReduce 框架为 YARN，配置 JobHistoryServer 的地址和端口，并设置 MapReduce 应用程序的类路径
 RUN cat > ${HADOOP_HOME}/etc/hadoop/mapred-site.xml << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
@@ -115,7 +102,7 @@ RUN cat > ${HADOOP_HOME}/etc/hadoop/mapred-site.xml << EOF
 </configuration>
 EOF
 
-# Configure workers: Specify DataNodes and NodeManagers | 配置 workers 文件
+# 配置 workers 文件，指定集群中的工作节点（DataNode 和 NodeManager）
 RUN cat > ${HADOOP_HOME}/etc/hadoop/workers << EOF
 hadoop1
 hadoop2
@@ -135,8 +122,8 @@ RUN ssh-keygen -t rsa -f /root/.ssh/id_rsa -P "" && \
 
 # ==============================================================================
 # Entrypoint
-# Run sshd in foreground to keep container alive | 将 sshd 设置为主进程在前台运行，保持容器存活
+# 将 sshd 设置为主进程在前台运行，保持容器存活
 # ==============================================================================
-# Expose SSH and Hadoop Web UI ports | 暴露 SSH、Hadoop Web UI 等端口方便访问
+# 暴露 SSH、Hadoop Web UI 和 JobHistoryServer 端口 方便访问
 EXPOSE 22 9000 50070 8088 19888 50090
 CMD ["/usr/sbin/sshd", "-D"]
