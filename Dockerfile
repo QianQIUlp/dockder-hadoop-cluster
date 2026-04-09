@@ -14,46 +14,49 @@
 # limitations under the License.
 #
 
-# ==============================================================================
-# Base Image
+# ======================================================================
+# Build Stage
+# 下载并解压 Hadoop，避免在运行时保留下载工具
+# ======================================================================
+FROM eclipse-temurin:8-jdk-jammy AS hadoop-builder
+
+ENV HADOOP_VERSION=3.3.4
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    curl -fsSL https://repo.huaweicloud.com/apache/hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz -o /tmp/hadoop.tar.gz && \
+    tar -xzf /tmp/hadoop.tar.gz -C /opt && \
+    rm -f /tmp/hadoop.tar.gz
+
+# ======================================================================
+# Runtime Image
 # 国内用户记得使用镜像加速
-# ==============================================================================
-FROM ubuntu:22.04
+# ======================================================================
+FROM eclipse-temurin:8-jdk-jammy
 
 # Prevent interactive prompts during apt-get install | 设置环境变量，防止在 apt-get install 时出现交互式前台提示
 ENV DEBIAN_FRONTEND=noninteractive
 
-# ==============================================================================
-# System Dependencies
-# Install basic tools and dependencies | 安装基础依赖
-# ==============================================================================
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        curl wget git vim openssh-server openjdk-8-jdk net-tools telnet iputils-ping && \
-    # Generate SSH host keys | 生成 SSH 主机密钥 (供 sshd 服务使用)
-    ssh-keygen -A && \
-    # Create sshd run directory to prevent startup failures | 提前创建 sshd 运行时目录，防止集群其他节点 sshd 启动失败
-    mkdir -p /run/sshd && chmod 755 /run/sshd && \
-    rm -rf /var/lib/apt/lists/*
-
-# Configure Java environment variables | 配置Java环境变量（使用默认的路径）
-ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
-ENV PATH=$PATH:$JAVA_HOME/bin
-
-# ==============================================================================
-# Hadoop Installation
-# ==============================================================================
+ENV JAVA_HOME=/opt/java/openjdk
 ENV HADOOP_VERSION=3.3.4
 ENV HADOOP_HOME=/opt/hadoop-${HADOOP_VERSION}
-ENV PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
+ENV PATH=$PATH:$JAVA_HOME/bin:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
 
-RUN wget -q -P /opt https://archive.apache.org/dist/hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz && \
-    tar -zxvf /opt/hadoop-${HADOOP_VERSION}.tar.gz -C /opt && \
-    rm -rf /opt/*.tar.gz
+# ======================================================================
+# System Dependencies
+# Install only the runtime essentials | 只安装运行时必需组件
+# ======================================================================
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends openssh-server && \
+    mkdir -p /run/sshd /root/.ssh && chmod 755 /run/sshd && \
+    rm -rf /var/lib/apt/lists/*
 
-# ==============================================================================
+COPY --from=hadoop-builder /opt/hadoop-3.3.4 /opt/hadoop-3.3.4
+
+# ======================================================================
 # Hadoop Configuration
-# ==============================================================================
+# ======================================================================
 # Configure Hadoop env and allow root execution | 配置 Hadoop 环境变量及 root 运行权限许可
 RUN echo "export JAVA_HOME=${JAVA_HOME}" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh && \
     echo "export JAVA_HOME=${JAVA_HOME}" >> ${HADOOP_HOME}/etc/hadoop/yarn-env.sh && \
@@ -62,15 +65,13 @@ RUN echo "export JAVA_HOME=${JAVA_HOME}" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env
     echo "export HDFS_DATANODE_USER=root" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh && \
     echo "export HDFS_SECONDARYNAMENODE_USER=root" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh && \
     echo "export YARN_RESOURCEMANAGER_USER=root" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh && \
-    echo "export YARN_NODEMANAGER_USER=root" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh
-
-# Sync env vars to /etc/profile for SSH logins | 将环境变量同步到 /etc/profile 中，确保 SSH 登录后也能加载
-RUN echo "export JAVA_HOME=${JAVA_HOME}" >> /etc/profile && \
+    echo "export YARN_NODEMANAGER_USER=root" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh && \
+    echo "export JAVA_HOME=${JAVA_HOME}" >> /etc/profile && \
     echo "export HADOOP_HOME=${HADOOP_HOME}" >> /etc/profile && \
-    echo "export PATH=\$PATH:${HADOOP_HOME}/bin:${HADOOP_HOME}/sbin" >> /etc/profile
-
-# Configure core-site.xml: NameNode=hadoop1, temp dir, root proxy | 配置 core-site.xml
-RUN cat > ${HADOOP_HOME}/etc/hadoop/core-site.xml << EOF
+    echo "export PATH=\$PATH:${HADOOP_HOME}/bin:${HADOOP_HOME}/sbin" >> /etc/profile && \
+    printf 'JAVA_HOME=%s\nHADOOP_HOME=%s\nPATH=%s/bin:%s/sbin:%s\n' "${JAVA_HOME}" "${HADOOP_HOME}" "${JAVA_HOME}" "${HADOOP_HOME}" "${PATH}" > /etc/environment && \
+    printf 'export JAVA_HOME=%s\nexport HADOOP_HOME=%s\nexport PATH=$PATH:%s/bin:%s/sbin\n' "${JAVA_HOME}" "${HADOOP_HOME}" "${HADOOP_HOME}" "${HADOOP_HOME}" > /etc/profile.d/hadoop.sh && \
+    cat > ${HADOOP_HOME}/etc/hadoop/core-site.xml << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
     <property><name>fs.defaultFS</name><value>hdfs://hadoop1:9000</value></property>
@@ -122,10 +123,11 @@ hadoop2
 hadoop3
 EOF
 
-# ==============================================================================
+# ======================================================================
 # SSH & Security Configuration
-# ==============================================================================
-RUN ssh-keygen -t rsa -f /root/.ssh/id_rsa -P "" && \
+# ======================================================================
+RUN ssh-keygen -A && \
+    ssh-keygen -t rsa -f /root/.ssh/id_rsa -P "" && \
     cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys && \
     chmod 700 /root/.ssh && \
     chmod 600 /root/.ssh/authorized_keys && \
@@ -133,10 +135,10 @@ RUN ssh-keygen -t rsa -f /root/.ssh/id_rsa -P "" && \
     sed -i 's/#UseDNS yes/UseDNS no/' /etc/ssh/sshd_config && \
     sed -i 's/#GSSAPIAuthentication yes/GSSAPIAuthentication no/' /etc/ssh/sshd_config
 
-# ==============================================================================
+# ======================================================================
 # Entrypoint
 # Run sshd in foreground to keep container alive | 将 sshd 设置为主进程在前台运行，保持容器存活
-# ==============================================================================
+# ======================================================================
 # Expose SSH and Hadoop Web UI ports | 暴露 SSH、Hadoop Web UI 等端口方便访问
 EXPOSE 22 9000 50070 8088 19888 50090
 CMD ["/usr/sbin/sshd", "-D"]

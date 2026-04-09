@@ -1,12 +1,14 @@
 # 🐳 Docker-Hadoop-Cluster
-[简体中文](README.md) | [English](README_EN.md)
+[中文](README.md) | [English](README_EN.md)
 
 ![Docker](https://img.shields.io/badge/Docker-Supported-blue.svg?logo=docker)
 ![Hadoop](https://img.shields.io/badge/Hadoop-3.3.4-yellow.svg?logo=apache)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
 
-本项目通过 Docker 和 Docker Compose，基于 Ubuntu 22.04 镜像，一键快速构建 Hadoop 3.3.4 完全分布式集群。适合作为大数据入门学习、实验环境搭建以及集群测试使用。\
+本项目通过 Docker 和 Docker Compose，基于更轻量的 Java 运行时镜像，一键快速构建 Hadoop 3.3.4 完全分布式集群。相较于原先的 Ubuntu + 完整 JDK 方案，镜像体积更小，适合作为大数据入门学习、实验环境搭建以及集群测试使用。\
 这也是我的第一个Git项目，正在学习关于Linux，Git，Hadoop，Docker的知识，希望能和大家一起进步！
+
+> 说明：为了进一步控制镜像体积，默认不再预装 git、vim、net-tools、telnet、ping 等排障工具；如有需要，可以在容器内按需安装。
 
 ## 🏗️ 集群架构设计
 
@@ -49,23 +51,57 @@ cd docker-hadoop-cluster
 docker compose up -d --build
 ```
 ### 3. 初始化并启动 Hadoop
+#### 3.1 启动 NameNode 和 HDFS（在 `hadoop1` 上执行）
 进入主节点 `hadoop1` 的终端：
 ```bash!
 docker exec -it hadoop1 bash
 ```
-在 `hadoop1` 内部，执行格式化并启动HDFS
+在 `hadoop1` 内部，执行格式化并启动HDFS：
 ```bash!
 # 格式化 NameNode（仅首次启动需要）
 hdfs namenode -format
 
 start-dfs.sh
 ```
-在 `hadoop2` 内部， 启动YARN
+
+#### 3.2 启动 YARN ResourceManager（在 `hadoop2` 上执行）
+在宿主机新打开一个终端，使用 SSH 进入 `hadoop2` 容器：
+```bash!
+# 方式一：通过 docker 进入容器
+docker exec -it hadoop2 bash
+
+# 方式二：通过 SSH 进入容器（需要知道容器 IP）
+ssh root@hadoop2
+```
+进入 `hadoop2` 后启动 YARN：
 ```bash!
 start-yarn.sh
 ```
-（可选）在 `hadoop3` 内部， 启动历史服务器
-```bash
+
+#### 3.3 启动 JobHistoryServer（在 `hadoop3` 上执行，可选）
+进入 `hadoop3` 容器，启动历史服务器：
+```bash!
+# 方式一：通过 docker 进入容器
+docker exec -it hadoop3 bash
+
+# 方式二：通过 SSH 进入容器
+ssh root@hadoop3
+
+# 启动历史服务器
 mapred --daemon start historyserver
 ```
-记得使用 `jps` 来检查进程是否生效哦~
+
+使用 `jps` 命令检查各节点上的进程是否正常运行。
+
+### 4. 清理和关闭集群
+当你需要停止和移除所有容器时，在宿主机上执行以下命令：
+```bash!
+# 停止所有容器并移除容器、网络（保留镜像和数据）
+docker compose down
+```
+
+如果你还想移除数据卷：
+```bash!
+# 同时移除数据卷
+docker compose down -v
+```
