@@ -3,10 +3,10 @@
 [中文](README.md) | [English](README_EN.md)
 
 ![Docker](https://img.shields.io/badge/Docker-Supported-blue.svg?logo=docker)
-![Hadoop](https://img.shields.io/badge/Hadoop-3.3.4-yellow.svg?logo=apache)
+![Hadoop](https://img.shields.io/badge/Hadoop-2.7.2-yellow.svg?logo=apache)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
 
-本项目用于教学场景下快速搭建 Hadoop 3.3.4 三节点完全分布式集群。
+本项目用于教学场景下快速搭建 Hadoop 2.7.2 三节点完全分布式集群。
 
 核心特性：
 
@@ -40,7 +40,7 @@ docker-hadoop-cluster/
 │   ├── hdfs-site.xml
 │   ├── yarn-site.xml
 │   ├── mapred-site.xml
-│   └── workers
+│   └── slaves
 ├── .env
 ├── data/                         # 运行后自动生成（已被 .gitignore 忽略）
 │   ├── hadoop1/
@@ -112,7 +112,7 @@ docker exec -it hadoop3 jps
 - `conf/hdfs-site.xml`
 - `conf/yarn-site.xml`
 - `conf/mapred-site.xml`
-- `conf/workers`
+- `conf/slaves`
 
 `docker-compose.yml` 会把 `conf/` 整体挂载为模板目录，再由 `entrypoint.sh` 渲染成运行配置。
 

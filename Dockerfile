@@ -17,8 +17,8 @@
 FROM ubuntu:22.04
 
 ARG HADOOP_VERSION=2.7.2
-ARG HADOOP_ARCHIVE=hadoop-2.7.2.tar.gz
-ARG JDK_ARCHIVE=jdk-8u144-linux-x64.tar.gz
+ARG HADOOP_DOWNLOAD_URL=https://archive.apache.org/dist/hadoop/common/hadoop-2.7.2/hadoop-2.7.2.tar.gz
+ARG JDK_DOWNLOAD_URL=https://cdn.azul.com/zulu/bin/zulu8.23.0.3-ca-jdk8.0.144-linux_x64.tar.gz
 
 ENV DEBIAN_FRONTEND=noninteractive \
     JAVA_HOME=/opt/jdk8u144 \
@@ -29,20 +29,20 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PATH=/opt/jdk8u144/bin:/opt/hadoop-${HADOOP_VERSION}/bin:/opt/hadoop-${HADOOP_VERSION}/sbin:${PATH}
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends openssh-server bash procps ca-certificates gettext-base tar && \
+    apt-get install -y --no-install-recommends openssh-server bash procps ca-certificates gettext-base tar curl && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir -p /run/sshd /root/.ssh /hadoop/dfs/name /hadoop/dfs/data /hadoop/yarn/local /hadoop/yarn/logs /hadoop/mr-history/tmp /hadoop/mr-history/done /hadoop/tmp ${HADOOP_CONF_TEMPLATE_DIR}
 
-# Copy local offline packages from repository root.
-# 从仓库根目录复制离线安装包。
-COPY ${HADOOP_ARCHIVE} /tmp/hadoop.tar.gz
-COPY ${JDK_ARCHIVE} /tmp/jdk.tar.gz
-
-# Install JDK 8u144 and Hadoop 2.7.2 from local tarballs.
-# 从本地压缩包安装 JDK 8u144 与 Hadoop 2.7.2。
+# Download and install JDK 8u144 and Hadoop 2.7.2.
+# 在线下载并安装 JDK 8u144 与 Hadoop 2.7.2。
 RUN set -eux; \
+    curl -fsSL "${JDK_DOWNLOAD_URL}" -o /tmp/jdk.tar.gz; \
+    curl -fsSL "${HADOOP_DOWNLOAD_URL}" -o /tmp/hadoop.tar.gz; \
     tar -xzf /tmp/jdk.tar.gz -C /opt; \
     jdk_dir="$(find /opt -maxdepth 1 -mindepth 1 -type d -name 'jdk*' | head -n 1)"; \
+    if [ -z "${jdk_dir}" ]; then \
+        jdk_dir="$(find /opt -maxdepth 1 -mindepth 1 -type d -name '*jdk*' | head -n 1)"; \
+    fi; \
     test -n "${jdk_dir}"; \
     mv "${jdk_dir}" "${JAVA_HOME}"; \
     tar -xzf /tmp/hadoop.tar.gz -C /opt; \
@@ -82,7 +82,7 @@ RUN chmod +x /entrypoint.sh && \
     printf 'export JAVA_HOME=%s\nexport HADOOP_HOME=%s\nexport HADOOP_CONF_DIR=%s\n' "${JAVA_HOME}" "${HADOOP_HOME}" "${HADOOP_CONF_DIR}" >> ${HADOOP_CONF_DIR}/hadoop-env.sh && \
     printf 'export HDFS_NAMENODE_USER=root\nexport HDFS_DATANODE_USER=root\nexport HDFS_SECONDARYNAMENODE_USER=root\nexport YARN_RESOURCEMANAGER_USER=root\nexport YARN_NODEMANAGER_USER=root\n' >> ${HADOOP_CONF_DIR}/hadoop-env.sh && \
     printf 'export JAVA_HOME=%s\n' "${JAVA_HOME}" >> ${HADOOP_CONF_DIR}/yarn-env.sh && \
-    printf 'export JAVA_HOME=%s\n' "${JAVA_HOME}" >> ${HADOOP_CONF_DIR}/mapred-env.sh
+    printf 'export JAVA_HOME=%s\nexport MAPRED_HISTORYSERVER_USER=root\n' "${JAVA_HOME}" >> ${HADOOP_CONF_DIR}/mapred-env.sh
 
 EXPOSE 22 9000 50070 8088 19888 50090
 

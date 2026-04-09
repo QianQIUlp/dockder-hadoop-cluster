@@ -5,8 +5,8 @@ set -euo pipefail
 # Global environment defaults
 # 全局环境变量默认值
 # ----------------------------------------------------------------------
-export JAVA_HOME="${JAVA_HOME:-/opt/java/openjdk}"
-export HADOOP_VERSION="${HADOOP_VERSION:-3.3.4}"
+export JAVA_HOME="${JAVA_HOME:-/opt/jdk8u144}"
+export HADOOP_VERSION="${HADOOP_VERSION:-2.7.2}"
 export HADOOP_HOME="${HADOOP_HOME:-/opt/hadoop-${HADOOP_VERSION}}"
 export HADOOP_CONF_DIR="${HADOOP_CONF_DIR:-${HADOOP_HOME}/etc/hadoop}"
 export HADOOP_CONF_TEMPLATE_DIR="${HADOOP_CONF_TEMPLATE_DIR:-/opt/hadoop-conf-template}"
@@ -50,12 +50,12 @@ log() {
 }
 
 # ----------------------------------------------------------------------
-# Render XML/workers from templates.
-# 从模板渲染 XML/workers 配置文件。
+# Render XML/slaves from templates.
+# 从模板渲染 XML/slaves 配置文件。
 # ----------------------------------------------------------------------
 render_hadoop_configs() {
     local files
-    files=(core-site.xml hdfs-site.xml yarn-site.xml mapred-site.xml workers)
+    files=(core-site.xml hdfs-site.xml yarn-site.xml mapred-site.xml slaves)
 
     if [[ ! -d "${HADOOP_CONF_TEMPLATE_DIR}" ]]; then
         log "Template dir not found: ${HADOOP_CONF_TEMPLATE_DIR}; use image defaults"
@@ -164,25 +164,25 @@ start_role_daemons() {
         namenode)
             format_namenode_if_needed
             log "Starting NameNode and local DataNode"
-            hdfs --daemon start namenode
-            hdfs --daemon start datanode
+            hadoop-daemon.sh start namenode
+            hadoop-daemon.sh start datanode
             ;;
         resourcemanager)
             log "Starting ResourceManager, NodeManager and local DataNode"
-            hdfs --daemon start datanode
-            yarn --daemon start resourcemanager
-            yarn --daemon start nodemanager
+            hadoop-daemon.sh start datanode
+            yarn-daemon.sh start resourcemanager
+            yarn-daemon.sh start nodemanager
             ;;
         secondary)
             log "Starting SecondaryNameNode, JobHistoryServer and local DataNode"
-            hdfs --daemon start datanode
-            hdfs --daemon start secondarynamenode
-            mapred --daemon start historyserver
+            hadoop-daemon.sh start datanode
+            hadoop-daemon.sh start secondarynamenode
+            mr-jobhistory-daemon.sh start historyserver
             ;;
         worker)
             log "Starting worker daemons (DataNode + NodeManager)"
-            hdfs --daemon start datanode
-            yarn --daemon start nodemanager
+            hadoop-daemon.sh start datanode
+            yarn-daemon.sh start nodemanager
             ;;
         *)
             log "Unknown NODE_ROLE=${NODE_ROLE}, only sshd will run"

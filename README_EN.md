@@ -1,10 +1,10 @@
 # 🐳 Docker-Hadoop-Cluster
 
 ![Docker](https://img.shields.io/badge/Docker-Supported-blue.svg?logo=docker)
-![Hadoop](https://img.shields.io/badge/Hadoop-3.3.4-yellow.svg?logo=apache)
+![Hadoop](https://img.shields.io/badge/Hadoop-2.7.2-yellow.svg?logo=apache)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
 
-This project is designed for teaching and lab usage, and builds a 3-node Hadoop 3.3.4 fully distributed cluster with Docker Compose.
+This project is designed for teaching and lab usage, and builds a 3-node Hadoop 2.7.2 fully distributed cluster with Docker Compose.
 
 Key features:
 
@@ -38,7 +38,7 @@ docker-hadoop-cluster/
 │   ├── hdfs-site.xml
 │   ├── yarn-site.xml
 │   ├── mapred-site.xml
-│   └── workers
+│   └── slaves
 ├── .env
 ├── data/                         # generated at runtime (ignored by .gitignore)
 │   ├── hadoop1/
@@ -110,7 +110,7 @@ Update only these files:
 - `conf/hdfs-site.xml`
 - `conf/yarn-site.xml`
 - `conf/mapred-site.xml`
-- `conf/workers`
+- `conf/slaves`
 
 `docker-compose.yml` mounts the whole `conf/` directory as templates, and `entrypoint.sh` renders runtime config files on startup.
 
