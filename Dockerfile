@@ -59,6 +59,11 @@ RUN apt-get update && \
 # 从构建阶段复制 Hadoop 二进制。
 COPY --from=hadoop-builder /opt/hadoop ${HADOOP_HOME}
 
+# Ensure runtime config files can be rendered by entrypoint.
+# 确保 entrypoint 渲染运行配置时具备写权限。
+RUN chown -R root:root ${HADOOP_HOME} && \
+    chmod -R u+rwX ${HADOOP_HOME}
+
 # Copy config templates to template directory.
 # 复制配置模板到模板目录（真正生效配置由 entrypoint 渲染）。
 COPY conf/ ${HADOOP_CONF_TEMPLATE_DIR}/
