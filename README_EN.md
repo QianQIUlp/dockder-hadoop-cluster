@@ -49,23 +49,90 @@ cd docker-hadoop-cluster
 docker compose up -d --build
 ```
 ### 3. Initialize and Start Hadoop
-Enter the terminal of the master node `hadoop1`:
-```bash!
-docker exec -it hadoop1 bash
-```
-Inside `hadoop1`, format the filesystem and start HDFS:
-```bash!
-# Format the NameNode (Only required for the first startup)
-hdfs namenode -format
 
+#### 3.1 Start HDFS on hadoop1
+
+**Method 1: Using docker exec (Recommended for quick operations)**
+```bash
+# Format the NameNode (Only required for the first startup)
+docker exec -it hadoop1 hdfs namenode -format
+
+# Start HDFS
+docker exec -it hadoop1 start-dfs.sh
+```
+
+**Method 2: Using SSH remote login (Suitable for multi-step operations)**
+```bash
+# SSH login to hadoop1 (port 50001 for container's port 22)
+ssh root@localhost -p 50001
+
+# Or find the container's IP address first, then login
+docker inspect hadoop1 | grep IPAddress
+ssh root@<hadoop1-ip>
+
+# Execute inside hadoop1
+hdfs namenode -format
 start-dfs.sh
 ```
-Enter the terminal of `hadoop2` to start YARN:
-```bash!
+
+#### 3.2 Start YARN on hadoop2
+
+**Method 1: Using docker exec**
+```bash
+docker exec -it hadoop2 start-yarn.sh
+```
+
+**Method 2: Using SSH remote login**
+```bash
+ssh root@localhost -p 50002  # Or ssh root@<hadoop2-ip>
 start-yarn.sh
 ```
-(Optional) Enter the terminal of `hadoop3` to start the JobHistoryServer:
+
+#### 3.3 Start JobHistoryServer on hadoop3 (Optional)
+
+**Method 1: Using docker exec**
 ```bash
+docker exec -it hadoop3 mapred --daemon start historyserver
+```
+
+**Method 2: Using SSH remote login**
+```bash
+ssh root@localhost -p 50003  # Or ssh root@<hadoop3-ip>
 mapred --daemon start historyserver
 ```
-Don't forget to use the `jps` command to check if the processes have successfully started!
+
+---
+
+## 4️⃣ Cluster Cleanup and Shutdown
+
+When you need to shut down the entire cluster, execute:
+
+```bash
+# Stop all services in Docker Compose, and remove containers and networks
+docker compose down
+```
+
+**Optional**: If you also want to delete the built images, execute:
+```bash
+docker image rm hadoop-cluster:latest
+```
+
+> **Tip**: Using `docker compose down` is the recommended way to completely clean up the cluster. It will remove containers, networks, and volumes (if defined in docker-compose.yml), ensuring a clean environment for the next `docker compose up --build`.
+
+---
+
+## 🔍 Common Commands Reference
+
+```bash
+# Check cluster status
+docker compose ps
+
+# View logs of hadoop1 container
+docker compose logs -f hadoop1
+
+# Enter interactive terminal of a container
+docker exec -it hadoop1 bash
+
+# Check HDFS status inside a container
+docker exec -it hadoop1 hdfs dfsadmin -report
+```

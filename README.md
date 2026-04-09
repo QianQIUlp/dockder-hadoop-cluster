@@ -49,23 +49,90 @@ cd docker-hadoop-cluster
 docker compose up -d --build
 ```
 ### 3. 初始化并启动 Hadoop
-进入主节点 `hadoop1` 的终端：
-```bash!
-docker exec -it hadoop1 bash
-```
-在 `hadoop1` 内部，执行格式化并启动HDFS
-```bash!
-# 格式化 NameNode（仅首次启动需要）
-hdfs namenode -format
 
+#### 3.1 在 hadoop1 启动 HDFS
+
+**方法 1：使用 docker exec（推荐快速操作）**
+```bash
+# 格式化 NameNode（仅首次启动需要）
+docker exec -it hadoop1 hdfs namenode -format
+
+# 启动 HDFS
+docker exec -it hadoop1 start-dfs.sh
+```
+
+**方法 2：使用 SSH 远程登录（适合多步操作）**
+```bash
+# SSH 登录到 hadoop1（基于容器的 22 号端口）
+ssh root@localhost -p 50001
+
+# 或查询 hadoop1 容器的 IP 地址后，直接登录
+docker inspect hadoop1 | grep IPAddress
+ssh root@<hadoop1-ip>
+
+# 在 hadoop1 内部执行
+hdfs namenode -format
 start-dfs.sh
 ```
-在 `hadoop2` 内部， 启动YARN
-```bash!
+
+#### 3.2 在 hadoop2 启动 YARN
+
+**方法 1：使用 docker exec**
+```bash
+docker exec -it hadoop2 start-yarn.sh
+```
+
+**方法 2：使用 SSH 远程登录**
+```bash
+ssh root@localhost -p 50002  # 或 ssh root@<hadoop2-ip>
 start-yarn.sh
 ```
-（可选）在 `hadoop3` 内部， 启动历史服务器
+
+#### 3.3 在 hadoop3 启动历史服务器（可选）
+
+**方法 1：使用 docker exec**
 ```bash
+docker exec -it hadoop3 mapred --daemon start historyserver
+```
+
+**方法 2：使用 SSH 远程登录**
+```bash
+ssh root@localhost -p 50003  # 或 ssh root@<hadoop3-ip>
 mapred --daemon start historyserver
 ```
-记得使用 `jps` 来检查进程是否生效哦~
+
+---
+
+## 4️⃣ 清理和关闭集群
+
+当需要关闭整个集群时，执行以下命令：
+
+```bash
+# 停止 Docker Compose 中的所有服务，并删除容器和网络
+docker compose down
+```
+
+**可选**：如果还需要删除已构建的镜像，执行：
+```bash
+docker image rm hadoop-cluster:latest
+```
+
+> **提示**：使用 `docker compose down` 是完全清理集群的推荐方式，它会同时移除容器、网络和卷（如果在 docker-compose.yml 中定义了的话），开启下一次完整的 `docker compose up --build` 时能获得最清洁的环境。
+
+---
+
+## 🔍 常用命令参考
+
+```bash
+# 查看集群状态
+docker compose ps
+
+# 查看 hadoop1 容器日志
+docker compose logs -f hadoop1
+
+# 进入某个容器交互式终端
+docker exec -it hadoop1 bash
+
+# 在容器中检查 HDFS 状态
+docker exec -it hadoop1 hdfs dfsadmin -report
+```

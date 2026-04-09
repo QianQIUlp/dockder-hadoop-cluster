@@ -1,84 +1,65 @@
-# ==============================================================================
-# Ubuntu 22.04 国内记得使用镜像加速
-# ==============================================================================
-FROM ubuntu:22.04
+# Multi-stage build Dockerfile for Hadoop cluster with Temurin JDK + Aliyun mirrors
+FROM eclipse-temurin:8-jdk-jammy AS hadoop-builder
 
-# 设置环境变量，防止在 apt-get install 时出现交互式前台提示
-ENV DEBIAN_FRONTEND=noninteractive
+ENV HADOOP_VERSION=3.3.4
 
-# ==============================================================================
-# System Dependencies & Mirror Configuration
-# 替换为阿里云镜像源并安装基础依赖
-# ==============================================================================
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    curl -fsSL https://repo.huaweicloud.com/apache/hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz -o /tmp/hadoop.tar.gz && \
+    tar -xzf /tmp/hadoop.tar.gz -C /opt && \
+    rm -f /tmp/hadoop.tar.gz
+
+FROM eclipse-temurin:8-jdk-jammy
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    JAVA_HOME=/opt/java/openjdk \
+    HADOOP_VERSION=3.3.4 \
+    HADOOP_HOME=/opt/hadoop-3.3.4 \
+    PATH=$PATH:/opt/java/openjdk/bin:/opt/hadoop-3.3.4/bin:/opt/hadoop-3.3.4/sbin
+
 RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
     sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
     apt-get update && \
-    apt-get install -y --no-install-recommends \
-        curl wget git vim openssh-server openjdk-8-jdk net-tools telnet iputils-ping && \
-    # 生成 SSH 主机密钥 (供 sshd 服务使用)
-    ssh-keygen -A && \
-    # 提前创建 sshd 运行所需的运行时目录，这一步很重要，否则在集群启动 Hadoop 时除主机外的其他节点会因为无法创建/run/sshd目录而导致 sshd 启动失败
-    mkdir -p /run/sshd && chmod 755 /run/sshd && \
+    apt-get install -y --no-install-recommends openssh-server && \
+    mkdir -p /run/sshd /root/.ssh && chmod 755 /run/sshd && \
     rm -rf /var/lib/apt/lists/*
 
-# 配置Java环境变量（使用默认的路径）
-ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
-ENV PATH=$PATH:$JAVA_HOME/bin
+COPY --from=hadoop-builder /opt/hadoop-3.3.4 /opt/hadoop-3.3.4
 
-# ==============================================================================
-# Hadoop Installation
-# 从华为开源镜像站拉取 Hadoop 3.3.4
-# ==============================================================================
-ENV HADOOP_VERSION=3.3.4
-ENV HADOOP_HOME=/opt/hadoop-${HADOOP_VERSION}
-ENV PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
-
-RUN wget -q -P /opt https://repo.huaweicloud.com/apache/hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz && \
-    tar -zxvf /opt/hadoop-${HADOOP_VERSION}.tar.gz -C /opt && \
-    rm -rf /opt/*.tar.gz
-
-# ==============================================================================
-# Hadoop Configuration
-# ==============================================================================
-# 配置 Hadoop 环境变量及 root 运行权限许可（默认下不允许root用户运行）
-RUN echo "export JAVA_HOME=${JAVA_HOME}" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh && \
-    echo "export JAVA_HOME=${JAVA_HOME}" >> ${HADOOP_HOME}/etc/hadoop/yarn-env.sh && \
-    echo "export JAVA_HOME=${JAVA_HOME}" >> ${HADOOP_HOME}/etc/hadoop/mapred-env.sh && \
+RUN echo "export JAVA_HOME=/opt/java/openjdk" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh && \
+    echo "export JAVA_HOME=/opt/java/openjdk" >> ${HADOOP_HOME}/etc/hadoop/yarn-env.sh && \
+    echo "export JAVA_HOME=/opt/java/openjdk" >> ${HADOOP_HOME}/etc/hadoop/mapred-env.sh && \
     echo "export HDFS_NAMENODE_USER=root" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh && \
     echo "export HDFS_DATANODE_USER=root" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh && \
     echo "export HDFS_SECONDARYNAMENODE_USER=root" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh && \
     echo "export YARN_RESOURCEMANAGER_USER=root" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh && \
-    echo "export YARN_NODEMANAGER_USER=root" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh
-
-# 将环境变量同步到 /etc/profile 中，确保 SSH 登录不同容器后也能加载
-RUN echo "export JAVA_HOME=${JAVA_HOME}" >> /etc/profile && \
+    echo "export YARN_NODEMANAGER_USER=root" >> ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh && \
+    echo "export JAVA_HOME=/opt/java/openjdk" >> /etc/profile && \
     echo "export HADOOP_HOME=${HADOOP_HOME}" >> /etc/profile && \
-    echo "export PATH=\$PATH:${HADOOP_HOME}/bin:${HADOOP_HOME}/sbin" >> /etc/profile
-
-# 配置 XML 文件 
-# 配置 core-site.xml，设置 Namenode 主机名为 hadoop1, 临时目录为tmp，允许root代理访问
-RUN cat > ${HADOOP_HOME}/etc/hadoop/core-site.xml << EOF
+    echo "export PATH=\$PATH:${HADOOP_HOME}/bin:${HADOOP_HOME}/sbin" >> /etc/profile && \
+    printf 'JAVA_HOME=/opt/java/openjdk\nHADOOP_HOME=%s\nPATH=%s/bin:%s/sbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n' "${HADOOP_HOME}" "${HADOOP_HOME}" "${HADOOP_HOME}" > /etc/environment && \
+    printf 'export JAVA_HOME=/opt/java/openjdk\nexport HADOOP_HOME=%s\nexport PATH=$PATH:%s/bin:%s/sbin\n' "${HADOOP_HOME}" "${HADOOP_HOME}" "${HADOOP_HOME}" > /etc/profile.d/hadoop.sh && \
+    cat > ${HADOOP_HOME}/etc/hadoop/core-site.xml << 'XMLEOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
     <property><name>fs.defaultFS</name><value>hdfs://hadoop1:9000</value></property>
-    <property><name>hadoop.tmp.dir</name><value>/opt/hadoop-${HADOOP_VERSION}/tmp</value></property>
+    <property><name>hadoop.tmp.dir</name><value>/opt/hadoop-3.3.4/tmp</value></property>
     <property><name>hadoop.proxyuser.root.hosts</name><value>*</value></property>
     <property><name>hadoop.proxyuser.root.groups</name><value>*</value></property>
 </configuration>
-EOF
+XMLEOF
 
-# 配置 hdfs-site.xml，副本数为3，配置 Namenode 和 Secondary Namenode 的 HTTP 地址
-RUN cat > ${HADOOP_HOME}/etc/hadoop/hdfs-site.xml << EOF
+RUN cat > ${HADOOP_HOME}/etc/hadoop/hdfs-site.xml << 'XMLEOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
     <property><name>dfs.replication</name><value>3</value></property>
     <property><name>dfs.namenode.secondary.http-address</name><value>hadoop3:50090</value></property>
     <property><name>dfs.namenode.http-address</name><value>0.0.0.0:50070</value></property>
 </configuration>
-EOF
+XMLEOF
 
-# 配置 yarn-site.xml，设置 ResourceManager 主机名为 hadoop2，启用日志聚合并配置相关参数
-RUN cat > ${HADOOP_HOME}/etc/hadoop/yarn-site.xml << EOF
+RUN cat > ${HADOOP_HOME}/etc/hadoop/yarn-site.xml << 'XMLEOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
     <property><name>yarn.resourcemanager.hostname</name><value>hadoop2</value></property>
@@ -89,10 +70,9 @@ RUN cat > ${HADOOP_HOME}/etc/hadoop/yarn-site.xml << EOF
     <property><name>yarn.nodemanager.vmem-check-enabled</name><value>false</value></property>
     <property><name>yarn.nodemanager.pmem-check-enabled</name><value>false</value></property>
 </configuration>
-EOF
+XMLEOF
 
-# 配置 mapred-site.xml，设置 MapReduce 框架为 YARN，配置 JobHistoryServer 的地址和端口，并设置 MapReduce 应用程序的类路径
-RUN cat > ${HADOOP_HOME}/etc/hadoop/mapred-site.xml << EOF
+RUN cat > ${HADOOP_HOME}/etc/hadoop/mapred-site.xml << 'XMLEOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
     <property><name>mapreduce.framework.name</name><value>yarn</value></property>
@@ -100,19 +80,16 @@ RUN cat > ${HADOOP_HOME}/etc/hadoop/mapred-site.xml << EOF
     <property><name>mapreduce.jobhistory.webapp.address</name><value>0.0.0.0:19888</value></property>
     <property><name>mapreduce.application.classpath</name><value>${HADOOP_HOME}/share/hadoop/mapreduce/*:${HADOOP_HOME}/share/hadoop/mapreduce/lib/*</value></property>
 </configuration>
-EOF
+XMLEOF
 
-# 配置 workers 文件，指定集群中的工作节点（DataNode 和 NodeManager）
-RUN cat > ${HADOOP_HOME}/etc/hadoop/workers << EOF
+RUN cat > ${HADOOP_HOME}/etc/hadoop/workers << 'XMLEOF'
 hadoop1
 hadoop2
 hadoop3
-EOF
+XMLEOF
 
-# ==============================================================================
-# SSH & Security Configuration
-# ==============================================================================
-RUN ssh-keygen -t rsa -f /root/.ssh/id_rsa -P "" && \
+RUN ssh-keygen -A && \
+    ssh-keygen -t rsa -f /root/.ssh/id_rsa -P "" && \
     cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys && \
     chmod 700 /root/.ssh && \
     chmod 600 /root/.ssh/authorized_keys && \
@@ -120,10 +97,5 @@ RUN ssh-keygen -t rsa -f /root/.ssh/id_rsa -P "" && \
     sed -i 's/#UseDNS yes/UseDNS no/' /etc/ssh/sshd_config && \
     sed -i 's/#GSSAPIAuthentication yes/GSSAPIAuthentication no/' /etc/ssh/sshd_config
 
-# ==============================================================================
-# Entrypoint
-# 将 sshd 设置为主进程在前台运行，保持容器存活
-# ==============================================================================
-# 暴露 SSH、Hadoop Web UI 和 JobHistoryServer 端口 方便访问
 EXPOSE 22 9000 50070 8088 19888 50090
 CMD ["/usr/sbin/sshd", "-D"]
