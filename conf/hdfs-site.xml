@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!--
+        EN: Number of DataNode replicas for each HDFS block.
+        CN: 每个 HDFS 数据块的副本数。
+    -->
+    <property>
+        <name>dfs.replication</name>
+        <value>${DFS_REPLICATION}</value>
+    </property>
+
+    <!--
+        EN: NameNode metadata directory (fsimage/edits).
+        CN: NameNode 元数据目录（存放 fsimage 与 edits）。
+    -->
+    <property>
+        <name>dfs.namenode.name.dir</name>
+        <value>file://${HDFS_NAMENODE_NAME_DIR}</value>
+    </property>
+
+    <!--
+        EN: DataNode block storage directory.
+        CN: DataNode 块数据存储目录。
+    -->
+    <property>
+        <name>dfs.datanode.data.dir</name>
+        <value>file://${HDFS_DATANODE_DATA_DIR}</value>
+    </property>
+
+    <!--
+        EN: NameNode RPC endpoint used by DataNode and clients.
+        CN: DataNode 和客户端连接 NameNode 的 RPC 地址。
+    -->
+    <property>
+        <name>dfs.namenode.rpc-address</name>
+        <value>${NAMENODE_HOST}:${NAMENODE_RPC_PORT}</value>
+    </property>
+
+    <!--
+        EN: NameNode web UI bind address inside container.
+        CN: 容器内部 NameNode Web UI 绑定地址。
+    -->
+    <property>
+        <name>dfs.namenode.http-address</name>
+        <value>0.0.0.0:${NAMENODE_HTTP_PORT}</value>
+    </property>
+
+    <!--
+        EN: SecondaryNameNode web endpoint for checkpoint operations.
+        CN: SecondaryNameNode Checkpoint 服务 Web 地址。
+    -->
+    <property>
+        <name>dfs.namenode.secondary.http-address</name>
+        <value>${SECONDARY_NAMENODE_HOST}:${SECONDARY_NAMENODE_HTTP_PORT}</value>
+    </property>
+</configuration>

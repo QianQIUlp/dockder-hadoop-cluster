@@ -1,41 +1,162 @@
 version: "3.8"
 
+# =====================================================================
+# Shared environment block for Hadoop runtime templating.
+# 用于 Hadoop 配置模板渲染的共享环境变量块。
+# =====================================================================
+x-hadoop-common-environment: &hadoop-common-environment
+  HADOOP_VERSION: ${HADOOP_VERSION}
+  HADOOP_CONF_TEMPLATE_DIR: ${HADOOP_CONF_TEMPLATE_DIR}
+  NAMENODE_HOST: ${NAMENODE_HOST}
+  NAMENODE_RPC_PORT: ${NAMENODE_RPC_PORT}
+  NAMENODE_HTTP_PORT: ${NAMENODE_HTTP_PORT}
+  RESOURCEMANAGER_HOST: ${RESOURCEMANAGER_HOST}
+  RESOURCEMANAGER_WEB_PORT: ${RESOURCEMANAGER_WEB_PORT}
+  SECONDARY_NAMENODE_HOST: ${SECONDARY_NAMENODE_HOST}
+  SECONDARY_NAMENODE_HTTP_PORT: ${SECONDARY_NAMENODE_HTTP_PORT}
+  JOBHISTORY_HOST: ${JOBHISTORY_HOST}
+  JOBHISTORY_RPC_PORT: ${JOBHISTORY_RPC_PORT}
+  JOBHISTORY_WEB_PORT: ${JOBHISTORY_WEB_PORT}
+  DFS_REPLICATION: ${DFS_REPLICATION}
+  HADOOP_TMP_DIR: ${HADOOP_TMP_DIR}
+  HDFS_NAMENODE_NAME_DIR: ${HDFS_NAMENODE_NAME_DIR}
+  HDFS_DATANODE_DATA_DIR: ${HDFS_DATANODE_DATA_DIR}
+  YARN_NODEMANAGER_LOCAL_DIR: ${YARN_NODEMANAGER_LOCAL_DIR}
+  YARN_NODEMANAGER_LOG_DIR: ${YARN_NODEMANAGER_LOG_DIR}
+  MAPRED_HISTORY_TMP_DIR: ${MAPRED_HISTORY_TMP_DIR}
+  MAPRED_HISTORY_DONE_DIR: ${MAPRED_HISTORY_DONE_DIR}
+  WAIT_FOR_NAMENODE_RETRIES: ${WAIT_FOR_NAMENODE_RETRIES}
+  WAIT_FOR_NAMENODE_INTERVAL: ${WAIT_FOR_NAMENODE_INTERVAL}
+
+# =====================================================================
+# Shared least-privilege security block.
+# 共享的最小权限安全设置。
+# =====================================================================
+x-hadoop-common-security: &hadoop-common-security
+  init: true
+  cap_drop:
+    - ALL
+  cap_add:
+    - NET_BIND_SERVICE
+  security_opt:
+    - no-new-privileges:true
+  restart: unless-stopped
+
 services:
   hadoop1:
-    build: .                   # Build image from current directory | 使用当前目录的 Dockerfile 构建镜像
-    image: hadoop-cluster:3.3.4
-    container_name: hadoop1    # Specify container name | 明确指定容器名称
-    hostname: hadoop1          # Specify hostname | 明确指定主机名
+    # Build image from current directory with explicit Hadoop version.
+    # 从当前目录构建镜像，并显式传入 Hadoop 版本参数。
+    build:
+      context: .
+      args:
+        HADOOP_VERSION: ${HADOOP_VERSION}
+    image: ${IMAGE_NAME}:${IMAGE_TAG}
+    container_name: hadoop1
+    hostname: hadoop1
+    environment:
+      <<: *hadoop-common-environment
+      NODE_ROLE: namenode
+      AUTO_FORMAT: ${AUTO_FORMAT_NAMENODE}
     ports:
-      - "50070:50070"          # NameNode Web UI | NameNode Web UI 面板
-      - "9000:9000"            # NameNode RPC port | NameNode RPC 通信端口
+      - "${NAMENODE_HTTP_PORT}:${NAMENODE_HTTP_PORT}"
+      - "${NAMENODE_RPC_PORT}:${NAMENODE_RPC_PORT}"
+    volumes:
+      # Mount all config templates once; entrypoint renders them to runtime conf.
+      # 一次性挂载模板配置目录；entrypoint 会渲染到运行配置目录。
+      - ./conf:${HADOOP_CONF_TEMPLATE_DIR}:ro
+      - ./data/hadoop1/name:${HDFS_NAMENODE_NAME_DIR}
+      - ./data/hadoop1/data:${HDFS_DATANODE_DATA_DIR}
+      - ./data/hadoop1/tmp:${HADOOP_TMP_DIR}
+    healthcheck:
+      # NameNode is healthy when sshd + NameNode + local DataNode are alive.
+      # 当 sshd、NameNode、本地 DataNode 均存在时判定健康。
+      test: ["CMD-SHELL", "bash -lc 'pgrep -x sshd >/dev/null && jps | grep -q NameNode && jps | grep -q DataNode'"]
+      interval: ${HEALTHCHECK_INTERVAL}
+      timeout: ${HEALTHCHECK_TIMEOUT}
+      retries: ${HEALTHCHECK_RETRIES}
+      start_period: ${HEALTHCHECK_START_PERIOD}
     networks:
       - hadoop-net
-    privileged: true           # Grant high privileges for sshd | 赋予较高权限，确保 sshd 等底层服务运行无阻
+    <<: *hadoop-common-security
 
   hadoop2:
-    build: .
-    image: hadoop-cluster:3.3.4
+    build:
+      context: .
+      args:
+        HADOOP_VERSION: ${HADOOP_VERSION}
+    image: ${IMAGE_NAME}:${IMAGE_TAG}
     container_name: hadoop2
     hostname: hadoop2
+    environment:
+      <<: *hadoop-common-environment
+      NODE_ROLE: resourcemanager
+      AUTO_FORMAT: "false"
     ports:
-      - "8088:8088"            # YARN ResourceManager Web UI | YARN 资源管理 Web UI 面板
+      - "${RESOURCEMANAGER_WEB_PORT}:${RESOURCEMANAGER_WEB_PORT}"
+    volumes:
+      - ./conf:${HADOOP_CONF_TEMPLATE_DIR}:ro
+      - ./data/hadoop2/data:${HDFS_DATANODE_DATA_DIR}
+      - ./data/hadoop2/yarn-local:${YARN_NODEMANAGER_LOCAL_DIR}
+      - ./data/hadoop2/yarn-logs:${YARN_NODEMANAGER_LOG_DIR}
+      - ./data/hadoop2/tmp:${HADOOP_TMP_DIR}
+    healthcheck:
+      # RM node is healthy when sshd + RM + NM + DataNode are alive.
+      # 当 sshd、ResourceManager、NodeManager、DataNode 都在时判定健康。
+      test: ["CMD-SHELL", "bash -lc 'pgrep -x sshd >/dev/null && jps | grep -q ResourceManager && jps | grep -q NodeManager && jps | grep -q DataNode'"]
+      interval: ${HEALTHCHECK_INTERVAL}
+      timeout: ${HEALTHCHECK_TIMEOUT}
+      retries: ${HEALTHCHECK_RETRIES}
+      start_period: ${HEALTHCHECK_START_PERIOD}
     networks:
       - hadoop-net
-    privileged: true
+    <<: *hadoop-common-security
+    depends_on:
+      # Startup gate: wait until NameNode service becomes healthy.
+      # 启动闸门：等待 NameNode 节点健康后再启动本节点。
+      hadoop1:
+        condition: service_healthy
 
   hadoop3:
-    build: .
-    image: hadoop-cluster:3.3.4
+    build:
+      context: .
+      args:
+        HADOOP_VERSION: ${HADOOP_VERSION}
+    image: ${IMAGE_NAME}:${IMAGE_TAG}
     container_name: hadoop3
     hostname: hadoop3
+    environment:
+      <<: *hadoop-common-environment
+      NODE_ROLE: secondary
+      AUTO_FORMAT: "false"
     ports:
-      - "50090:50090"          # SecondaryNameNode Web UI | SecondaryNameNode Web UI 面板
-      - "19888:19888"          # JobHistoryServer Web UI | 历史服务器 Web UI 面板
+      - "${SECONDARY_NAMENODE_HTTP_PORT}:${SECONDARY_NAMENODE_HTTP_PORT}"
+      - "${JOBHISTORY_WEB_PORT}:${JOBHISTORY_WEB_PORT}"
+    volumes:
+      - ./conf:${HADOOP_CONF_TEMPLATE_DIR}:ro
+      - ./data/hadoop3/data:${HDFS_DATANODE_DATA_DIR}
+      - ./data/hadoop3/tmp:${HADOOP_TMP_DIR}
+      - ./data/hadoop3/mr-history-tmp:${MAPRED_HISTORY_TMP_DIR}
+      - ./data/hadoop3/mr-history-done:${MAPRED_HISTORY_DONE_DIR}
+    healthcheck:
+      # Secondary node is healthy when sshd + SNN + JHS + DataNode are alive.
+      # 当 sshd、SecondaryNameNode、HistoryServer、DataNode 都在时判定健康。
+      test: ["CMD-SHELL", "bash -lc 'pgrep -x sshd >/dev/null && jps | grep -q SecondaryNameNode && jps | grep -q JobHistoryServer && jps | grep -q DataNode'"]
+      interval: ${HEALTHCHECK_INTERVAL}
+      timeout: ${HEALTHCHECK_TIMEOUT}
+      retries: ${HEALTHCHECK_RETRIES}
+      start_period: ${HEALTHCHECK_START_PERIOD}
     networks:
       - hadoop-net
-    privileged: true
+    <<: *hadoop-common-security
+    depends_on:
+      hadoop1:
+        condition: service_healthy
+      hadoop2:
+        condition: service_healthy
 
 networks:
   hadoop-net:
-    driver: bridge             # Use default bridge network for hostname resolution | 使用默认的桥接网络，容器间可以通过主机名互相访问
+    # Bridge network allows container DNS by service/container hostname.
+    # bridge 网络可通过服务名/主机名实现容器内 DNS 互通。
+    driver: bridge
+    name: ${HADOOP_NETWORK_NAME}

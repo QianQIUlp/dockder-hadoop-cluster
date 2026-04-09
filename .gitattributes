@@ -1,0 +1,4 @@
+# 强制所有文件使用 LF 换行符
+* text eol=lf
+# 明确指定脚本文件必须是 LF
+*.sh text eol=lf

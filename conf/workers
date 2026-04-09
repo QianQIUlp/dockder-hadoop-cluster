@@ -1,0 +1,8 @@
+# EN: List of worker hostnames used by start-dfs.sh / stop-dfs.sh.
+# CN: start-dfs.sh / stop-dfs.sh 使用的 worker 主机名列表。
+#
+# EN: Keep one hostname per line, matching docker-compose service hostnames.
+# CN: 每行一个主机名，需与 docker-compose 里的服务主机名严格一致。
+hadoop1
+hadoop2
+hadoop3

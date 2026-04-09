@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!--
+        EN: Use YARN as MapReduce execution framework.
+        CN: 指定 MapReduce 运行在 YARN 上。
+    -->
+    <property>
+        <name>mapreduce.framework.name</name>
+        <value>yarn</value>
+    </property>
+
+    <!--
+        EN: JobHistoryServer RPC endpoint.
+        CN: JobHistoryServer RPC 地址。
+    -->
+    <property>
+        <name>mapreduce.jobhistory.address</name>
+        <value>${JOBHISTORY_HOST}:${JOBHISTORY_RPC_PORT}</value>
+    </property>
+
+    <!--
+        EN: JobHistoryServer web console bind address.
+        CN: JobHistoryServer Web 控制台绑定地址。
+    -->
+    <property>
+        <name>mapreduce.jobhistory.webapp.address</name>
+        <value>0.0.0.0:${JOBHISTORY_WEB_PORT}</value>
+    </property>
+
+    <!--
+        EN: Final completed-job history directory.
+        CN: 已完成任务历史数据最终归档目录。
+    -->
+    <property>
+        <name>mapreduce.jobhistory.done-dir</name>
+        <value>${MAPRED_HISTORY_DONE_DIR}</value>
+    </property>
+
+    <!--
+        EN: Intermediate history directory during job lifecycle.
+        CN: 任务执行中间阶段历史信息目录。
+    -->
+    <property>
+        <name>mapreduce.jobhistory.intermediate-done-dir</name>
+        <value>${MAPRED_HISTORY_TMP_DIR}</value>
+    </property>
+
+    <!--
+        EN: Explicit JAVA_HOME for map tasks.
+        CN: 显式声明 map 任务运行时 JAVA_HOME。
+    -->
+    <property>
+        <name>mapreduce.map.env</name>
+        <value>JAVA_HOME=${JAVA_HOME}</value>
+    </property>
+
+    <!--
+        EN: Explicit JAVA_HOME for reduce tasks.
+        CN: 显式声明 reduce 任务运行时 JAVA_HOME。
+    -->
+    <property>
+        <name>mapreduce.reduce.env</name>
+        <value>JAVA_HOME=${JAVA_HOME}</value>
+    </property>
+
+    <!--
+        EN: Explicit JAVA_HOME for MR ApplicationMaster on YARN.
+        CN: 显式声明 YARN 上 MR ApplicationMaster 的 JAVA_HOME。
+    -->
+    <property>
+        <name>yarn.app.mapreduce.am.env</name>
+        <value>JAVA_HOME=${JAVA_HOME}</value>
+    </property>
+</configuration>

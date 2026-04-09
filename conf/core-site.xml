@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!--
+        EN: Default filesystem URI for all Hadoop clients.
+        CN: 所有 Hadoop 客户端默认访问的文件系统入口。
+    -->
+    <property>
+        <name>fs.defaultFS</name>
+        <value>hdfs://${NAMENODE_HOST}:${NAMENODE_RPC_PORT}</value>
+    </property>
+
+    <!--
+        EN: Base temp directory for Hadoop runtime artifacts.
+        CN: Hadoop 运行期临时文件根目录（PID、临时任务、局部缓存等）。
+    -->
+    <property>
+        <name>hadoop.tmp.dir</name>
+        <value>${HADOOP_TMP_DIR}</value>
+    </property>
+
+    <!--
+        EN: Allow root proxy access from any host in this lab setup.
+        CN: 教学环境下允许 root 代理任意主机。
+    -->
+    <property>
+        <name>hadoop.proxyuser.root.hosts</name>
+        <value>*</value>
+    </property>
+
+    <!--
+        EN: Allow root proxy access for any group in this lab setup.
+        CN: 教学环境下允许 root 代理任意用户组。
+    -->
+    <property>
+        <name>hadoop.proxyuser.root.groups</name>
+        <value>*</value>
+    </property>
+</configuration>

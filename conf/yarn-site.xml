@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!--
+        EN: ResourceManager host advertised to NodeManagers and clients.
+        CN: 对 NodeManager 与客户端公布的 ResourceManager 主机名。
+    -->
+    <property>
+        <name>yarn.resourcemanager.hostname</name>
+        <value>${RESOURCEMANAGER_HOST}</value>
+    </property>
+
+    <!--
+        EN: ResourceManager web console bind address.
+        CN: ResourceManager Web 控制台绑定地址。
+    -->
+    <property>
+        <name>yarn.resourcemanager.webapp.address</name>
+        <value>0.0.0.0:${RESOURCEMANAGER_WEB_PORT}</value>
+    </property>
+
+    <!--
+        EN: Enable shuffle service for MapReduce on NodeManager.
+        CN: 启用 NodeManager 上的 MapReduce Shuffle 服务。
+    -->
+    <property>
+        <name>yarn.nodemanager.aux-services</name>
+        <value>mapreduce_shuffle</value>
+    </property>
+
+    <!--
+        EN: Aggregate application logs to HDFS for centralized analysis.
+        CN: 将应用日志聚合到 HDFS，便于集中分析。
+    -->
+    <property>
+        <name>yarn.log-aggregation-enable</name>
+        <value>true</value>
+    </property>
+
+    <!--
+        EN: Keep aggregated logs for 7 days (604800 seconds).
+        CN: 聚合日志保留 7 天（604800 秒）。
+    -->
+    <property>
+        <name>yarn.log-aggregation.retain-seconds</name>
+        <value>604800</value>
+    </property>
+
+    <!--
+        EN: Disable strict virtual memory checks for lightweight labs.
+        CN: 教学环境关闭虚拟内存严格检查，减少误杀任务。
+    -->
+    <property>
+        <name>yarn.nodemanager.vmem-check-enabled</name>
+        <value>false</value>
+    </property>
+
+    <!--
+        EN: Disable strict physical memory checks for lightweight labs.
+        CN: 教学环境关闭物理内存严格检查，减少误杀任务。
+    -->
+    <property>
+        <name>yarn.nodemanager.pmem-check-enabled</name>
+        <value>false</value>
+    </property>
+
+    <!--
+        EN: NodeManager local work directory.
+        CN: NodeManager 本地工作目录。
+    -->
+    <property>
+        <name>yarn.nodemanager.local-dirs</name>
+        <value>${YARN_NODEMANAGER_LOCAL_DIR}</value>
+    </property>
+
+    <!--
+        EN: NodeManager local log directory.
+        CN: NodeManager 本地日志目录。
+    -->
+    <property>
+        <name>yarn.nodemanager.log-dirs</name>
+        <value>${YARN_NODEMANAGER_LOG_DIR}</value>
+    </property>
+</configuration>

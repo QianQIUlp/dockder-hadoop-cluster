@@ -1,0 +1,37 @@
+version: "3.8"
+
+# =====================================================================
+# Security Overlay Compose
+# 安全增强覆盖模板（与主 compose 叠加使用）
+# Usage / 用法:
+#   docker compose -f docker-compose.yml -f docker-compose.secure.yml up -d --build
+# =====================================================================
+services:
+  hadoop1:
+    # Add coarse-grained resource boundaries for lab safety.
+    # 为教学实验环境添加粗粒度资源边界，防止单节点异常占满宿主机资源。
+    pids_limit: ${SECURE_PIDS_LIMIT}
+    mem_limit: ${SECURE_MEM_LIMIT}
+    cpus: ${SECURE_CPUS}
+
+    # tmpfs keeps transient files in memory and auto-cleans at restart.
+    # tmpfs 将临时文件放在内存中，容器重启后自动清理。
+    tmpfs:
+      - /run:size=64m,uid=0,gid=0,mode=755
+      - /tmp:size=512m,uid=0,gid=0,mode=1777
+
+  hadoop2:
+    pids_limit: ${SECURE_PIDS_LIMIT}
+    mem_limit: ${SECURE_MEM_LIMIT}
+    cpus: ${SECURE_CPUS}
+    tmpfs:
+      - /run:size=64m,uid=0,gid=0,mode=755
+      - /tmp:size=512m,uid=0,gid=0,mode=1777
+
+  hadoop3:
+    pids_limit: ${SECURE_PIDS_LIMIT}
+    mem_limit: ${SECURE_MEM_LIMIT}
+    cpus: ${SECURE_CPUS}
+    tmpfs:
+      - /run:size=64m,uid=0,gid=0,mode=755
+      - /tmp:size=512m,uid=0,gid=0,mode=1777
