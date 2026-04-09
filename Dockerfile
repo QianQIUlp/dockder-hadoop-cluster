@@ -14,50 +14,46 @@
 # limitations under the License.
 #
 
-# ======================================================================
-# Stage 1: Build Hadoop runtime payload
-# 阶段 1：构建 Hadoop 运行时载荷
-# - Download Hadoop once in builder stage.
-# - 在构建阶段下载 Hadoop，避免在最终镜像保留下载工具。
-# ======================================================================
-FROM eclipse-temurin:8-jdk-jammy AS hadoop-builder
+FROM ubuntu:22.04
 
-ARG HADOOP_VERSION=3.3.4
-
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl ca-certificates && \
-    rm -rf /var/lib/apt/lists/* && \
-    curl -fsSL "https://repo.huaweicloud.com/apache/hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz" -o /tmp/hadoop.tar.gz && \
-    tar -xzf /tmp/hadoop.tar.gz -C /opt && \
-    mv /opt/hadoop-${HADOOP_VERSION} /opt/hadoop && \
-    rm -f /tmp/hadoop.tar.gz
-
-# ======================================================================
-# Stage 2: Runtime image
-# 阶段 2：运行时镜像
-# - Keep only Hadoop + sshd + minimal runtime tools.
-# - 仅保留 Hadoop、sshd 与最小运行工具。
-# ======================================================================
-FROM eclipse-temurin:8-jdk-jammy
-
-ARG HADOOP_VERSION=3.3.4
+ARG HADOOP_VERSION=2.7.2
+ARG HADOOP_ARCHIVE=hadoop-2.7.2.tar.gz
+ARG JDK_ARCHIVE=jdk-8u144-linux-x64.tar.gz
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    JAVA_HOME=/opt/java/openjdk \
+    JAVA_HOME=/opt/jdk8u144 \
     HADOOP_VERSION=${HADOOP_VERSION} \
     HADOOP_HOME=/opt/hadoop-${HADOOP_VERSION} \
     HADOOP_CONF_DIR=/opt/hadoop-${HADOOP_VERSION}/etc/hadoop \
     HADOOP_CONF_TEMPLATE_DIR=/opt/hadoop-conf-template \
-    PATH=/opt/java/openjdk/bin:/opt/hadoop-${HADOOP_VERSION}/bin:/opt/hadoop-${HADOOP_VERSION}/sbin:${PATH}
+    PATH=/opt/jdk8u144/bin:/opt/hadoop-${HADOOP_VERSION}/bin:/opt/hadoop-${HADOOP_VERSION}/sbin:${PATH}
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends openssh-server bash procps ca-certificates gettext-base && \
+    apt-get install -y --no-install-recommends openssh-server bash procps ca-certificates gettext-base tar && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir -p /run/sshd /root/.ssh /hadoop/dfs/name /hadoop/dfs/data /hadoop/yarn/local /hadoop/yarn/logs /hadoop/mr-history/tmp /hadoop/mr-history/done /hadoop/tmp ${HADOOP_CONF_TEMPLATE_DIR}
 
-# Copy Hadoop binaries from builder stage.
-# 从构建阶段复制 Hadoop 二进制。
-COPY --from=hadoop-builder /opt/hadoop ${HADOOP_HOME}
+# Copy local offline packages from repository root.
+# 从仓库根目录复制离线安装包。
+COPY ${HADOOP_ARCHIVE} /tmp/hadoop.tar.gz
+COPY ${JDK_ARCHIVE} /tmp/jdk.tar.gz
+
+# Install JDK 8u144 and Hadoop 2.7.2 from local tarballs.
+# 从本地压缩包安装 JDK 8u144 与 Hadoop 2.7.2。
+RUN set -eux; \
+    tar -xzf /tmp/jdk.tar.gz -C /opt; \
+    jdk_dir="$(find /opt -maxdepth 1 -mindepth 1 -type d -name 'jdk*' | head -n 1)"; \
+    test -n "${jdk_dir}"; \
+    mv "${jdk_dir}" "${JAVA_HOME}"; \
+    tar -xzf /tmp/hadoop.tar.gz -C /opt; \
+    if [ ! -d "${HADOOP_HOME}" ]; then \
+        extracted_hadoop_dir="$(find /opt -maxdepth 1 -mindepth 1 -type d -name 'hadoop*' | sort | head -n 1)"; \
+        test -n "${extracted_hadoop_dir}"; \
+        mv "${extracted_hadoop_dir}" "${HADOOP_HOME}"; \
+    fi; \
+    chown -R root:root "${JAVA_HOME}" "${HADOOP_HOME}"; \
+    chmod -R u+rwX "${HADOOP_HOME}"; \
+    rm -f /tmp/jdk.tar.gz /tmp/hadoop.tar.gz
 
 # Copy config templates to template directory.
 # 复制配置模板到模板目录（真正生效配置由 entrypoint 渲染）。
