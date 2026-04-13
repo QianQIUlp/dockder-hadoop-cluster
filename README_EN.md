@@ -40,7 +40,7 @@ docker-hadoop-cluster/
 │   ├── yarn-site.xml
 │   ├── mapred-site.xml
 │   └── workers
-├── .env
+├── .env.example
 ├── data/                         # generated at runtime (ignored by .gitignore)
 │   ├── hadoop1/
 │   ├── hadoop2/
@@ -56,6 +56,8 @@ docker-hadoop-cluster/
 ---
 
 ## 🌐 Port Mapping (Default)
+
+Ports are bound to `127.0.0.1` by default (controlled by `HOST_BIND_IP`) to avoid accidental public exposure.
 
 - HDFS NameNode UI: <http://localhost:50070>
 - HDFS RPC: `9000`
@@ -74,6 +76,7 @@ All defaults can be adjusted in `.env`.
 ```bash
 git clone git@github.com:YourUsername/docker-hadoop-cluster.git
 cd docker-hadoop-cluster
+cp .env.example .env
 ```
 
 ### 2. Build and start cluster
@@ -133,10 +136,16 @@ Dockerfile also copies `conf/` into the image template directory, so it can run 
 
 You can centrally control in `.env`:
 
+Start from `.env.example`, then adjust local values. `.env` is no longer tracked by git.
+
 - Hadoop version and image tag
+- Hadoop tarball checksum (`HADOOP_TARBALL_SHA512`, required for build)
+- bind address for published ports (`HOST_BIND_IP`)
 - Service RPC/Web ports
 - HDFS replication factor
 - NameNode auto-format switch
+- root proxy allowlist (`HADOOP_PROXYUSER_ROOT_HOSTS` / `HADOOP_PROXYUSER_ROOT_GROUPS`)
+- daemon user and SSH env injection switch (`HADOOP_DAEMON_USER` / `ENABLE_SSH_USER_ENV`)
 - Healthcheck and startup-gate behavior
 
 ---
@@ -147,7 +156,7 @@ The repository includes `.github/workflows/publish-ghcr.yml`.
 
 Recommended before publishing:
 
-- In GitHub Settings -> Secrets and variables -> Actions -> Variables, set `HADOOP_TARBALL_SHA512` to the official SHA512 checksum of `hadoop-3.3.4.tar.gz`.
+- In GitHub Settings -> Secrets and variables -> Actions -> Variables, set `HADOOP_TARBALL_SHA512` to the official SHA512 checksum of `hadoop-3.3.4.tar.gz` (required).
 - Push a version tag to trigger publishing:
 
 ```bash
@@ -161,6 +170,7 @@ The workflow will automatically:
 - build and push to GHCR
 - emit SBOM and provenance attestations
 - sign image digest with keyless Cosign (OIDC)
+- fail fast when `HADOOP_TARBALL_SHA512` is missing
 
 After the first publish, switch package visibility to Public in GitHub Packages if needed.
 
@@ -202,7 +212,7 @@ This project now handles it in `entrypoint.sh` by:
 
 - generating SSH host/root keys at container runtime (no baked private keys in image layers)
 - writing `/root/.ssh/environment`
-- enabling `PermitUserEnvironment yes` in sshd
+- keeping `PermitUserEnvironment` disabled by default (enable only with `ENABLE_SSH_USER_ENV=true`)
 - generating `/etc/profile.d/hadoop.sh`
 
 This greatly reduces cross-node SSH failures caused by incomplete runtime environments.

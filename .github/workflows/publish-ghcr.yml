@@ -17,26 +17,27 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Prepare image name
         id: prep
         run: |
           echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
-      - name: Warn if tarball checksum is missing
+      - name: Fail if tarball checksum is missing
         env:
           HADOOP_TARBALL_SHA512: ${{ vars.HADOOP_TARBALL_SHA512 }}
         run: |
           if [[ -z "${HADOOP_TARBALL_SHA512}" ]]; then
-            echo "::warning::Repository variable HADOOP_TARBALL_SHA512 is empty; build will skip Hadoop tarball integrity verification."
+            echo "::error::Repository variable HADOOP_TARBALL_SHA512 is required."
+            exit 1
           fi
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -44,7 +45,7 @@ jobs:
 
       - name: Extract Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ${{ steps.prep.outputs.image }}
           tags: |
@@ -53,7 +54,7 @@ jobs:
             type=raw,value=latest
 
       - name: Build local image for vulnerability scan
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           load: true
@@ -64,7 +65,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@6c175e9c4083a92bbca2f9724c8a5e33bc2d97a5 # v0.30.0
         with:
           image-ref: local/hadoop-cluster:scan
           format: table
@@ -74,7 +75,7 @@ jobs:
 
       - name: Build and push image
         id: build_push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           push: true
@@ -88,7 +89,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v3.9.0
+        uses: sigstore/cosign-installer@2e2f661cd4be3a4b891a882064e49d0fed4b7b88 # v3.9.0
 
       - name: Sign published image digest
         env:
