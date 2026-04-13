@@ -30,7 +30,10 @@ RUN apt-get update && \
     curl -fsSL "https://repo.huaweicloud.com/apache/hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz" -o /tmp/hadoop.tar.gz && \
     tar -xzf /tmp/hadoop.tar.gz -C /opt && \
     mv /opt/hadoop-${HADOOP_VERSION} /opt/hadoop && \
-    rm -f /tmp/hadoop.tar.gz
+    rm -f /tmp/hadoop.tar.gz && \
+    rm -rf /opt/hadoop/share/doc && \
+    find /opt/hadoop/share/hadoop -type d \( -name sources -o -name jdiff \) -prune -exec rm -rf {} + && \
+    rm -rf /opt/hadoop/share/hadoop/mapreduce/lib-examples
 
 # ======================================================================
 # Stage 2: Runtime image
@@ -59,10 +62,10 @@ RUN apt-get update && \
 # 从构建阶段复制 Hadoop 二进制。
 COPY --from=hadoop-builder /opt/hadoop ${HADOOP_HOME}
 
-# Ensure runtime config files can be rendered by entrypoint.
-# 确保 entrypoint 渲染运行配置时具备写权限。
-RUN chown -R root:root ${HADOOP_HOME} && \
-    chmod -R u+rwX ${HADOOP_HOME}
+# Keep only Hadoop config directory writable for runtime template rendering.
+# 仅放开 Hadoop 配置目录写权限，避免复制整棵目录产生超大重复层。
+RUN chown -R root:root ${HADOOP_CONF_DIR} && \
+    chmod -R u+rwX,go+rX ${HADOOP_CONF_DIR}
 
 # Copy config templates to template directory.
 # 复制配置模板到模板目录（真正生效配置由 entrypoint 渲染）。

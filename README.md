@@ -83,6 +83,14 @@ cd docker-hadoop-cluster
 docker compose up -d --build
 ```
 
+该命令现在仅构建一次共享核心镜像（由 hadoop1 触发），hadoop2/hadoop3 直接复用同一镜像标签，不再重复构建。
+
+如果你历史上已经产生过悬空镜像，可一次性清理：
+
+```bash
+docker image prune -f
+```
+
 启动后，容器会自动执行角色对应的初始化流程。
 
 如果你希望叠加安全资源限制模板：
