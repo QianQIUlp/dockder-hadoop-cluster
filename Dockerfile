@@ -30,11 +30,11 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends curl ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
     curl -fsSL "${HADOOP_BASE_URL}/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz" -o /tmp/hadoop.tar.gz && \
-    if [ -n "${HADOOP_TARBALL_SHA512}" ]; then \
-        echo "${HADOOP_TARBALL_SHA512}  /tmp/hadoop.tar.gz" | sha512sum -c -; \
-    else \
-        echo "WARNING: HADOOP_TARBALL_SHA512 is empty, skipping tarball integrity verification"; \
+    if [ -z "${HADOOP_TARBALL_SHA512}" ]; then \
+        echo "ERROR: HADOOP_TARBALL_SHA512 is required"; \
+        exit 1; \
     fi && \
+    echo "${HADOOP_TARBALL_SHA512}  /tmp/hadoop.tar.gz" | sha512sum -c - && \
     tar -xzf /tmp/hadoop.tar.gz -C /opt && \
     mv /opt/hadoop-${HADOOP_VERSION} /opt/hadoop && \
     rm -f /tmp/hadoop.tar.gz && \
@@ -58,12 +58,15 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HADOOP_HOME=/opt/hadoop-${HADOOP_VERSION} \
     HADOOP_CONF_DIR=/opt/hadoop-${HADOOP_VERSION}/etc/hadoop \
     HADOOP_CONF_TEMPLATE_DIR=/opt/hadoop-conf-template \
+    HADOOP_LOG_DIR=/hadoop/logs \
     PATH=/opt/java/openjdk/bin:/opt/hadoop-${HADOOP_VERSION}/bin:/opt/hadoop-${HADOOP_VERSION}/sbin:${PATH}
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends openssh-server bash procps ca-certificates gettext-base && \
     rm -rf /var/lib/apt/lists/* && \
-    mkdir -p /run/sshd /root/.ssh /hadoop/dfs/name /hadoop/dfs/data /hadoop/yarn/local /hadoop/yarn/logs /hadoop/mr-history/tmp /hadoop/mr-history/done /hadoop/tmp ${HADOOP_CONF_TEMPLATE_DIR}
+    groupadd --gid 10001 hadoop && \
+    useradd --uid 10001 --gid hadoop --create-home --home-dir /home/hadoop --shell /bin/bash hadoop && \
+    mkdir -p /run/sshd /root/.ssh /home/hadoop/.ssh /hadoop/dfs/name /hadoop/dfs/data /hadoop/yarn/local /hadoop/yarn/logs /hadoop/mr-history/tmp /hadoop/mr-history/done /hadoop/tmp /hadoop/logs ${HADOOP_CONF_TEMPLATE_DIR}
 
 # Copy Hadoop binaries from builder stage.
 # 从构建阶段复制 Hadoop 二进制。
@@ -86,19 +89,22 @@ COPY entrypoint.sh /entrypoint.sh
 # 配置 SSH 与 Hadoop 运行时默认行为。
 RUN chmod +x /entrypoint.sh && \
     mkdir -p /root/.ssh && \
+    mkdir -p /home/hadoop/.ssh && \
     chmod 700 /root/.ssh && \
+    chmod 700 /home/hadoop/.ssh && \
     printf 'Host *\n    StrictHostKeyChecking accept-new\n' > /root/.ssh/config && \
     chmod 600 /root/.ssh/config && \
     sed -ri 's/^#?PermitRootLogin\s+.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config && \
     sed -ri 's/^#?UseDNS\s+.*/UseDNS no/' /etc/ssh/sshd_config && \
     sed -ri 's/^#?GSSAPIAuthentication\s+.*/GSSAPIAuthentication no/' /etc/ssh/sshd_config && \
+    sed -ri 's/^#?PermitUserEnvironment\s+.*/PermitUserEnvironment no/' /etc/ssh/sshd_config && \
     sed -ri 's/^#?PasswordAuthentication\s+.*/PasswordAuthentication no/' /etc/ssh/sshd_config && \
     sed -ri 's/^#?PubkeyAuthentication\s+.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config && \
-    grep -q '^PermitUserEnvironment yes$' /etc/ssh/sshd_config || echo 'PermitUserEnvironment yes' >> /etc/ssh/sshd_config && \
     printf 'export JAVA_HOME=%s\nexport HADOOP_HOME=%s\nexport HADOOP_CONF_DIR=%s\n' "${JAVA_HOME}" "${HADOOP_HOME}" "${HADOOP_CONF_DIR}" >> ${HADOOP_CONF_DIR}/hadoop-env.sh && \
-    printf 'export HDFS_NAMENODE_USER=root\nexport HDFS_DATANODE_USER=root\nexport HDFS_SECONDARYNAMENODE_USER=root\nexport YARN_RESOURCEMANAGER_USER=root\nexport YARN_NODEMANAGER_USER=root\n' >> ${HADOOP_CONF_DIR}/hadoop-env.sh && \
+    printf 'export HDFS_NAMENODE_USER=hadoop\nexport HDFS_DATANODE_USER=hadoop\nexport HDFS_SECONDARYNAMENODE_USER=hadoop\nexport YARN_RESOURCEMANAGER_USER=hadoop\nexport YARN_NODEMANAGER_USER=hadoop\n' >> ${HADOOP_CONF_DIR}/hadoop-env.sh && \
     printf 'export JAVA_HOME=%s\n' "${JAVA_HOME}" >> ${HADOOP_CONF_DIR}/yarn-env.sh && \
-    printf 'export JAVA_HOME=%s\n' "${JAVA_HOME}" >> ${HADOOP_CONF_DIR}/mapred-env.sh
+    printf 'export JAVA_HOME=%s\n' "${JAVA_HOME}" >> ${HADOOP_CONF_DIR}/mapred-env.sh && \
+    chown -R hadoop:hadoop ${HADOOP_HOME} /hadoop /home/hadoop/.ssh
 
 EXPOSE 22 9000 50070 8088 19888 50090
 

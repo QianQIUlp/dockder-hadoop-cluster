@@ -24,7 +24,7 @@
     -->
     <property>
         <name>hadoop.proxyuser.root.hosts</name>
-        <value>*</value>
+        <value>${HADOOP_PROXYUSER_ROOT_HOSTS}</value>
     </property>
 
     <!--
@@ -33,6 +33,6 @@
     -->
     <property>
         <name>hadoop.proxyuser.root.groups</name>
-        <value>*</value>
+        <value>${HADOOP_PROXYUSER_ROOT_GROUPS}</value>
     </property>
 </configuration>

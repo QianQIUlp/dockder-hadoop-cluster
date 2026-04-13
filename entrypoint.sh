@@ -20,6 +20,8 @@ NODE_ROLE="${NODE_ROLE:-worker}"
 AUTO_FORMAT="${AUTO_FORMAT:-false}"
 WAIT_FOR_NAMENODE_RETRIES="${WAIT_FOR_NAMENODE_RETRIES:-60}"
 WAIT_FOR_NAMENODE_INTERVAL="${WAIT_FOR_NAMENODE_INTERVAL:-2}"
+HADOOP_DAEMON_USER="${HADOOP_DAEMON_USER:-hadoop}"
+ENABLE_SSH_USER_ENV="${ENABLE_SSH_USER_ENV:-false}"
 
 # ----------------------------------------------------------------------
 # Runtime path defaults used by config templates
@@ -119,11 +121,23 @@ export PATH=\$PATH:${HADOOP_HOME}/bin:${HADOOP_HOME}/sbin:${JAVA_HOME}/bin
 EOF
     chmod 644 /etc/profile.d/hadoop.sh
 
-    # Enable SSH user environment if missing.
-    # 如果 sshd_config 未启用用户环境变量，则自动追加。
-    if ! grep -q '^PermitUserEnvironment yes$' /etc/ssh/sshd_config; then
-        printf '\nPermitUserEnvironment yes\n' >> /etc/ssh/sshd_config
+    # Keep SSH user environment disabled by default.
+    # 默认禁用 SSH 用户环境变量注入，仅在显式开启时允许。
+    if [[ "${ENABLE_SSH_USER_ENV}" == "true" ]]; then
+        sed -ri 's/^#?PermitUserEnvironment\s+.*/PermitUserEnvironment yes/' /etc/ssh/sshd_config
+    else
+        sed -ri 's/^#?PermitUserEnvironment\s+.*/PermitUserEnvironment no/' /etc/ssh/sshd_config
     fi
+}
+
+run_as_daemon_user() {
+    local cmd="$1"
+    if ! id -u "${HADOOP_DAEMON_USER}" >/dev/null 2>&1; then
+        log "Daemon user ${HADOOP_DAEMON_USER} not found, fallback to root"
+        bash -lc "${cmd}"
+        return
+    fi
+    su -s /bin/bash -c "${cmd}" "${HADOOP_DAEMON_USER}"
 }
 
 start_sshd() {
@@ -145,6 +159,15 @@ prepare_runtime_dirs() {
         "${YARN_NODEMANAGER_LOG_DIR}" \
         "${MAPRED_HISTORY_TMP_DIR}" \
         "${MAPRED_HISTORY_DONE_DIR}"
+    chown -R "${HADOOP_DAEMON_USER}:${HADOOP_DAEMON_USER}" \
+        "${HADOOP_TMP_DIR}" \
+        "${HDFS_NAMENODE_NAME_DIR}" \
+        "${HDFS_DATANODE_DATA_DIR}" \
+        "${YARN_NODEMANAGER_LOCAL_DIR}" \
+        "${YARN_NODEMANAGER_LOG_DIR}" \
+        "${MAPRED_HISTORY_TMP_DIR}" \
+        "${MAPRED_HISTORY_DONE_DIR}" \
+        "${HADOOP_CONF_DIR}" || true
 }
 
 wait_for_namenode() {
@@ -172,7 +195,7 @@ format_namenode_if_needed() {
     if [[ "${AUTO_FORMAT}" == "true" ]]; then
         if [[ ! -d "${HDFS_NAMENODE_NAME_DIR}/current" ]]; then
             log "NameNode metadata not found, formatting..."
-            hdfs namenode -format -nonInteractive
+            run_as_daemon_user "hdfs namenode -format -nonInteractive"
         else
             log "NameNode metadata exists, skipping format"
         fi
@@ -188,25 +211,25 @@ start_role_daemons() {
         namenode)
             format_namenode_if_needed
             log "Starting NameNode and local DataNode"
-            hdfs --daemon start namenode
-            hdfs --daemon start datanode
+            run_as_daemon_user "hdfs --daemon start namenode"
+            run_as_daemon_user "hdfs --daemon start datanode"
             ;;
         resourcemanager)
             log "Starting ResourceManager, NodeManager and local DataNode"
-            hdfs --daemon start datanode
-            yarn --daemon start resourcemanager
-            yarn --daemon start nodemanager
+            run_as_daemon_user "hdfs --daemon start datanode"
+            run_as_daemon_user "yarn --daemon start resourcemanager"
+            run_as_daemon_user "yarn --daemon start nodemanager"
             ;;
         secondary)
             log "Starting SecondaryNameNode, JobHistoryServer and local DataNode"
-            hdfs --daemon start datanode
-            hdfs --daemon start secondarynamenode
-            mapred --daemon start historyserver
+            run_as_daemon_user "hdfs --daemon start datanode"
+            run_as_daemon_user "hdfs --daemon start secondarynamenode"
+            run_as_daemon_user "mapred --daemon start historyserver"
             ;;
         worker)
             log "Starting worker daemons (DataNode + NodeManager)"
-            hdfs --daemon start datanode
-            yarn --daemon start nodemanager
+            run_as_daemon_user "hdfs --daemon start datanode"
+            run_as_daemon_user "yarn --daemon start nodemanager"
             ;;
         *)
             log "Unknown NODE_ROLE=${NODE_ROLE}, only sshd will run"

@@ -25,6 +25,10 @@ x-hadoop-common-environment: &hadoop-common-environment
   MAPRED_HISTORY_DONE_DIR: ${MAPRED_HISTORY_DONE_DIR}
   WAIT_FOR_NAMENODE_RETRIES: ${WAIT_FOR_NAMENODE_RETRIES}
   WAIT_FOR_NAMENODE_INTERVAL: ${WAIT_FOR_NAMENODE_INTERVAL}
+  HADOOP_PROXYUSER_ROOT_HOSTS: ${HADOOP_PROXYUSER_ROOT_HOSTS:-hadoop1,hadoop2,hadoop3,localhost}
+  HADOOP_PROXYUSER_ROOT_GROUPS: ${HADOOP_PROXYUSER_ROOT_GROUPS:-root}
+  HADOOP_DAEMON_USER: ${HADOOP_DAEMON_USER:-hadoop}
+  ENABLE_SSH_USER_ENV: ${ENABLE_SSH_USER_ENV:-false}
 
 # =====================================================================
 # Shared least-privilege security block.
@@ -48,6 +52,7 @@ services:
       context: .
       args:
         HADOOP_VERSION: ${HADOOP_VERSION}
+        HADOOP_TARBALL_SHA512: ${HADOOP_TARBALL_SHA512}
     image: ${IMAGE_NAME}:${IMAGE_TAG}
     container_name: hadoop1
     hostname: hadoop1
@@ -56,8 +61,8 @@ services:
       NODE_ROLE: namenode
       AUTO_FORMAT: ${AUTO_FORMAT_NAMENODE}
     ports:
-      - "${NAMENODE_HTTP_PORT}:${NAMENODE_HTTP_PORT}"
-      - "${NAMENODE_RPC_PORT}:${NAMENODE_RPC_PORT}"
+      - "${HOST_BIND_IP:-127.0.0.1}:${NAMENODE_HTTP_PORT}:${NAMENODE_HTTP_PORT}"
+      - "${HOST_BIND_IP:-127.0.0.1}:${NAMENODE_RPC_PORT}:${NAMENODE_RPC_PORT}"
     volumes:
       # Mount all config templates once; entrypoint renders them to runtime conf.
       # 一次性挂载模板配置目录；entrypoint 会渲染到运行配置目录。
@@ -86,7 +91,7 @@ services:
       NODE_ROLE: resourcemanager
       AUTO_FORMAT: "false"
     ports:
-      - "${RESOURCEMANAGER_WEB_PORT}:${RESOURCEMANAGER_WEB_PORT}"
+      - "${HOST_BIND_IP:-127.0.0.1}:${RESOURCEMANAGER_WEB_PORT}:${RESOURCEMANAGER_WEB_PORT}"
     volumes:
       - ./conf:${HADOOP_CONF_TEMPLATE_DIR}:ro
       - ./data/hadoop2/data:${HDFS_DATANODE_DATA_DIR}
@@ -119,8 +124,8 @@ services:
       NODE_ROLE: secondary
       AUTO_FORMAT: "false"
     ports:
-      - "${SECONDARY_NAMENODE_HTTP_PORT}:${SECONDARY_NAMENODE_HTTP_PORT}"
-      - "${JOBHISTORY_WEB_PORT}:${JOBHISTORY_WEB_PORT}"
+      - "${HOST_BIND_IP:-127.0.0.1}:${SECONDARY_NAMENODE_HTTP_PORT}:${SECONDARY_NAMENODE_HTTP_PORT}"
+      - "${HOST_BIND_IP:-127.0.0.1}:${JOBHISTORY_WEB_PORT}:${JOBHISTORY_WEB_PORT}"
     volumes:
       - ./conf:${HADOOP_CONF_TEMPLATE_DIR}:ro
       - ./data/hadoop3/data:${HDFS_DATANODE_DATA_DIR}
