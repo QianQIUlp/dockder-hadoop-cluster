@@ -23,11 +23,18 @@
 FROM eclipse-temurin:8-jdk-jammy AS hadoop-builder
 
 ARG HADOOP_VERSION=3.3.4
+ARG HADOOP_BASE_URL=https://repo.huaweicloud.com/apache/hadoop/common
+ARG HADOOP_TARBALL_SHA512=""
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
-    curl -fsSL "https://repo.huaweicloud.com/apache/hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz" -o /tmp/hadoop.tar.gz && \
+    curl -fsSL "${HADOOP_BASE_URL}/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz" -o /tmp/hadoop.tar.gz && \
+    if [ -n "${HADOOP_TARBALL_SHA512}" ]; then \
+        echo "${HADOOP_TARBALL_SHA512}  /tmp/hadoop.tar.gz" | sha512sum -c -; \
+    else \
+        echo "WARNING: HADOOP_TARBALL_SHA512 is empty, skipping tarball integrity verification"; \
+    fi && \
     tar -xzf /tmp/hadoop.tar.gz -C /opt && \
     mv /opt/hadoop-${HADOOP_VERSION} /opt/hadoop && \
     rm -f /tmp/hadoop.tar.gz && \
@@ -78,14 +85,11 @@ COPY entrypoint.sh /entrypoint.sh
 # Configure SSH and Hadoop runtime defaults.
 # 配置 SSH 与 Hadoop 运行时默认行为。
 RUN chmod +x /entrypoint.sh && \
-    ssh-keygen -A && \
-    ssh-keygen -t rsa -f /root/.ssh/id_rsa -N "" && \
-    cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys && \
+    mkdir -p /root/.ssh && \
     chmod 700 /root/.ssh && \
-    chmod 600 /root/.ssh/authorized_keys && \
-    printf 'Host *\n    StrictHostKeyChecking no\n    UserKnownHostsFile /dev/null\n' > /root/.ssh/config && \
+    printf 'Host *\n    StrictHostKeyChecking accept-new\n' > /root/.ssh/config && \
     chmod 600 /root/.ssh/config && \
-    sed -ri 's/^#?PermitRootLogin\s+.*/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -ri 's/^#?PermitRootLogin\s+.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config && \
     sed -ri 's/^#?UseDNS\s+.*/UseDNS no/' /etc/ssh/sshd_config && \
     sed -ri 's/^#?GSSAPIAuthentication\s+.*/GSSAPIAuthentication no/' /etc/ssh/sshd_config && \
     sed -ri 's/^#?PasswordAuthentication\s+.*/PasswordAuthentication no/' /etc/ssh/sshd_config && \

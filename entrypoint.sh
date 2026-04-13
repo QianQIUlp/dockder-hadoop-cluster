@@ -74,6 +74,30 @@ ensure_ssh_runtime_env() {
     # Ensure runtime directories for sshd and root key materials.
     # 确保 sshd 与 root 密钥运行目录存在。
     mkdir -p /run/sshd /root/.ssh
+    chmod 700 /root/.ssh
+
+    # Generate host keys at runtime so published images never contain private keys.
+    # 运行期生成 host key，避免公开镜像层中固化私钥。
+    if [[ ! -s /etc/ssh/ssh_host_rsa_key ]]; then
+        log "Generating SSH host keys"
+        ssh-keygen -A
+    fi
+
+    # Generate one root keypair per container instance when absent.
+    # 若不存在 root key，则为当前容器生成唯一密钥对。
+    if [[ ! -s /root/.ssh/id_rsa ]]; then
+        log "Generating root SSH keypair"
+        ssh-keygen -t rsa -b 4096 -f /root/.ssh/id_rsa -N ""
+    fi
+
+    touch /root/.ssh/authorized_keys
+    local pub_key
+    pub_key="$(cat /root/.ssh/id_rsa.pub)"
+    if ! grep -qxF "${pub_key}" /root/.ssh/authorized_keys; then
+        printf '%s\n' "${pub_key}" >> /root/.ssh/authorized_keys
+    fi
+    chmod 600 /root/.ssh/id_rsa /root/.ssh/authorized_keys
+    chmod 644 /root/.ssh/id_rsa.pub
 
     # Export variables into SSH session environment.
     # 将关键变量注入 SSH 会话环境。

@@ -12,6 +12,7 @@ Key features:
 2. A unified `entrypoint.sh` starts sshd and role-specific daemons automatically.
 3. `.env` provides centralized parameterization.
 4. `.gitignore` filters runtime artifacts and temporary binaries.
+5. A GHCR publishing workflow is included with vulnerability scanning, image signing, and SBOM/provenance.
 
 > Note: To keep the image lean, common troubleshooting tools are not preinstalled by default.
 
@@ -140,6 +141,37 @@ You can centrally control in `.env`:
 
 ---
 
+## 📦 Publish to GitHub Packages (GHCR)
+
+The repository includes `.github/workflows/publish-ghcr.yml`.
+
+Recommended before publishing:
+
+- In GitHub Settings -> Secrets and variables -> Actions -> Variables, set `HADOOP_TARBALL_SHA512` to the official SHA512 checksum of `hadoop-3.3.4.tar.gz`.
+- Push a version tag to trigger publishing:
+
+```bash
+git tag v3.3.4
+git push origin v3.3.4
+```
+
+The workflow will automatically:
+
+- build a local image and scan HIGH/CRITICAL vulnerabilities with Trivy
+- build and push to GHCR
+- emit SBOM and provenance attestations
+- sign image digest with keyless Cosign (OIDC)
+
+After the first publish, switch package visibility to Public in GitHub Packages if needed.
+
+Pull example:
+
+```bash
+docker pull ghcr.io/<your-github-username>/dockder-hadoop-cluster:latest
+```
+
+---
+
 ## 🧠 NameNode Auto-Format Logic
 
 `hadoop1` is configured with:
@@ -168,6 +200,7 @@ A common issue in containerized Hadoop setups is missing variables across SSH se
 
 This project now handles it in `entrypoint.sh` by:
 
+- generating SSH host/root keys at container runtime (no baked private keys in image layers)
 - writing `/root/.ssh/environment`
 - enabling `PermitUserEnvironment yes` in sshd
 - generating `/etc/profile.d/hadoop.sh`
