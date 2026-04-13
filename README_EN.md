@@ -81,6 +81,14 @@ cd docker-hadoop-cluster
 docker compose up -d --build
 ```
 
+This command now builds the shared core image only once (triggered by hadoop1). hadoop2/hadoop3 reuse the same image tag and no longer trigger duplicate builds.
+
+If you already have old dangling images from previous builds, clean them once with:
+
+```bash
+docker image prune -f
+```
+
 Containers will run role-based initialization automatically after startup.
 
 If you want to apply extra resource hardening:

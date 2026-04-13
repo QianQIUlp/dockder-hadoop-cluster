@@ -1,5 +1,3 @@
-version: "3.8"
-
 # =====================================================================
 # Shared environment block for Hadoop runtime templating.
 # 用于 Hadoop 配置模板渲染的共享环境变量块。
@@ -44,8 +42,8 @@ x-hadoop-common-security: &hadoop-common-security
 
 services:
   hadoop1:
-    # Build image from current directory with explicit Hadoop version.
-    # 从当前目录构建镜像，并显式传入 Hadoop 版本参数。
+    # Build shared base image once; other nodes reuse the same image tag.
+    # 仅构建一次共享镜像；其余节点复用同一镜像标签。
     build:
       context: .
       args:
@@ -80,10 +78,6 @@ services:
     <<: *hadoop-common-security
 
   hadoop2:
-    build:
-      context: .
-      args:
-        HADOOP_VERSION: ${HADOOP_VERSION}
     image: ${IMAGE_NAME}:${IMAGE_TAG}
     container_name: hadoop2
     hostname: hadoop2
@@ -117,10 +111,6 @@ services:
         condition: service_healthy
 
   hadoop3:
-    build:
-      context: .
-      args:
-        HADOOP_VERSION: ${HADOOP_VERSION}
     image: ${IMAGE_NAME}:${IMAGE_TAG}
     container_name: hadoop3
     hostname: hadoop3

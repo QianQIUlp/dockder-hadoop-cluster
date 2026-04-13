@@ -51,8 +51,12 @@ RUN set -eux; \
         test -n "${extracted_hadoop_dir}"; \
         mv "${extracted_hadoop_dir}" "${HADOOP_HOME}"; \
     fi; \
-    chown -R root:root "${JAVA_HOME}" "${HADOOP_HOME}"; \
-    chmod -R u+rwX "${HADOOP_HOME}"; \
+    rm -rf "${HADOOP_HOME}/share/doc"; \
+    find "${HADOOP_HOME}/share/hadoop" -type d \( -name sources -o -name jdiff \) -prune -exec rm -rf {} +; \
+    rm -rf "${HADOOP_HOME}/share/hadoop/mapreduce/lib-examples"; \
+    chown -R root:root "${JAVA_HOME}"; \
+    chown -R root:root "${HADOOP_CONF_DIR}"; \
+    chmod -R u+rwX,go+rX "${HADOOP_CONF_DIR}"; \
     rm -f /tmp/jdk.tar.gz /tmp/hadoop.tar.gz
 
 # Copy config templates to template directory.
