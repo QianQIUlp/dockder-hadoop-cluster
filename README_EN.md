@@ -160,8 +160,8 @@ Recommended before publishing:
 - Push a version tag to trigger publishing:
 
 ```bash
-git tag v3.3.4
-git push origin v3.3.4
+git tag v3.3.6
+git push origin v3.3.6
 ```
 
 The workflow will automatically:
