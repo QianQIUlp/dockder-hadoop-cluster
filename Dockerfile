@@ -22,7 +22,7 @@
 # ======================================================================
 FROM eclipse-temurin:8-jdk-jammy AS hadoop-builder
 
-ARG HADOOP_VERSION=3.3.4
+ARG HADOOP_VERSION=3.4.1
 ARG HADOOP_BASE_URL=https://repo.huaweicloud.com/apache/hadoop/common
 ARG HADOOP_TARBALL_SHA512=""
 
@@ -50,7 +50,7 @@ RUN apt-get update && \
 # ======================================================================
 FROM eclipse-temurin:8-jdk-jammy
 
-ARG HADOOP_VERSION=3.3.4
+ARG HADOOP_VERSION=3.4.1
 
 ENV DEBIAN_FRONTEND=noninteractive \
     JAVA_HOME=/opt/java/openjdk \
@@ -106,6 +106,6 @@ RUN chmod +x /entrypoint.sh && \
     printf 'export JAVA_HOME=%s\n' "${JAVA_HOME}" >> ${HADOOP_CONF_DIR}/mapred-env.sh && \
     chown -R hadoop:hadoop ${HADOOP_HOME} /hadoop /home/hadoop/.ssh
 
-EXPOSE 22 9000 50070 8088 19888 50090
+EXPOSE 22 9000 9870 8088 19888 9868
 
 ENTRYPOINT ["/entrypoint.sh"]

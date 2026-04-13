@@ -1,10 +1,10 @@
 # 🐳 Docker-Hadoop-Cluster
 
 ![Docker](https://img.shields.io/badge/Docker-Supported-blue.svg?logo=docker)
-![Hadoop](https://img.shields.io/badge/Hadoop-3.3.4-yellow.svg?logo=apache)
+![Hadoop](https://img.shields.io/badge/Hadoop-3.4.1-yellow.svg?logo=apache)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
 
-This project is designed for teaching and lab usage, and builds a 3-node Hadoop 3.3.4 fully distributed cluster with Docker Compose.
+This project is designed for teaching and lab usage, and builds a 3-node Hadoop 3.4.1 fully distributed cluster with Docker Compose.
 
 Key features:
 
@@ -59,10 +59,10 @@ docker-hadoop-cluster/
 
 Ports are bound to `127.0.0.1` by default (controlled by `HOST_BIND_IP`) to avoid accidental public exposure.
 
-- HDFS NameNode UI: <http://localhost:50070>
+- HDFS NameNode UI: <http://localhost:9870>
 - HDFS RPC: `9000`
 - YARN ResourceManager UI: <http://localhost:8088>
-- SecondaryNameNode UI: <http://localhost:50090>
+- SecondaryNameNode UI: <http://localhost:9868>
 - JobHistory UI: <http://localhost:19888>
 
 All defaults can be adjusted in `.env`.
@@ -156,7 +156,7 @@ The repository includes `.github/workflows/publish-ghcr.yml`.
 
 Recommended before publishing:
 
-- In GitHub Settings -> Secrets and variables -> Actions -> Variables, set `HADOOP_TARBALL_SHA512` to the official SHA512 checksum of `hadoop-3.3.4.tar.gz` (required).
+- In GitHub Settings -> Secrets and variables -> Actions -> Variables, set `HADOOP_TARBALL_SHA512` to the official SHA512 checksum of `hadoop-3.4.1.tar.gz` (required).
 - Push a version tag to trigger publishing:
 
 ```bash
