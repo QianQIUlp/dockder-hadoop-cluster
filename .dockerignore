@@ -1,7 +1,14 @@
 .git
+.github
 .gitignore
 .gitattributes
 .vscode
 .env
 data
 *.log
+**/.ssh
+**/id_rsa
+**/id_dsa
+**/*.pem
+**/*.key
+**/*private_key*
