@@ -95,6 +95,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends openssh-server bash procps ca-certificates gettext-base && \
+    rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub && \
     rm -rf /var/lib/apt/lists/* && \
     groupadd --gid 10001 hadoop && \
     useradd --uid 10001 --gid hadoop --create-home --home-dir /home/hadoop --shell /bin/bash hadoop && \
