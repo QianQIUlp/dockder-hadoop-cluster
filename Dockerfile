@@ -23,8 +23,8 @@
 FROM eclipse-temurin:8-jdk-jammy AS hadoop-builder
 
 ARG HADOOP_VERSION=3.4.1
-ARG HADOOP_BASE_URL=https://repo.huaweicloud.com/apache/hadoop/common
-ARG HADOOP_FALLBACK_BASE_URLS="https://dlcdn.apache.org/apache/hadoop/common https://archive.apache.org/dist/hadoop/common"
+ARG HADOOP_BASE_URL=https://dlcdn.apache.org/apache/hadoop/common
+ARG HADOOP_FALLBACK_BASE_URLS="https://archive.apache.org/dist/hadoop/common https://repo.huaweicloud.com/apache/hadoop/common"
 ARG HADOOP_TARBALL_SHA512=""
 
 RUN apt-get update && \
@@ -44,12 +44,23 @@ RUN apt-get update && \
         echo "ERROR: failed to download ${HADOOP_ARCHIVE} from all configured mirrors"; \
         exit 1; \
     fi && \
+    if [ ! -s /tmp/hadoop.tar.gz ]; then \
+        echo "ERROR: downloaded ${HADOOP_ARCHIVE} is empty"; \
+        exit 1; \
+    fi && \
     if [ -z "${HADOOP_TARBALL_SHA512}" ]; then \
         echo "ERROR: HADOOP_TARBALL_SHA512 is required"; \
         exit 1; \
     fi && \
-    if ! echo "${HADOOP_TARBALL_SHA512}  /tmp/hadoop.tar.gz" | sha512sum -c -; then \
+    ACTUAL_SHA512="$(sha512sum /tmp/hadoop.tar.gz | awk '{print $1}')" && \
+    if [ "${ACTUAL_SHA512}" != "${HADOOP_TARBALL_SHA512}" ]; then \
         echo "ERROR: checksum verification failed for ${HADOOP_ARCHIVE}"; \
+        echo "ERROR: expected=${HADOOP_TARBALL_SHA512}"; \
+        echo "ERROR: actual=${ACTUAL_SHA512}"; \
+        exit 1; \
+    fi && \
+    if ! tar -tzf /tmp/hadoop.tar.gz >/dev/null 2>&1; then \
+        echo "ERROR: ${HADOOP_ARCHIVE} is not a valid gzip tar archive"; \
         exit 1; \
     fi && \
     tar -xzf /tmp/hadoop.tar.gz -C /opt && \

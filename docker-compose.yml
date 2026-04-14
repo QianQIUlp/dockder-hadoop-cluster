@@ -53,7 +53,7 @@ services:
       context: .
       args:
         HADOOP_VERSION: ${HADOOP_VERSION}
-        HADOOP_BASE_URL: ${HADOOP_BASE_URL:-https://repo.huaweicloud.com/apache/hadoop/common}
+        HADOOP_BASE_URL: ${HADOOP_BASE_URL:-https://dlcdn.apache.org/apache/hadoop/common}
         HADOOP_TARBALL_SHA512: ${HADOOP_TARBALL_SHA512}
     image: ${IMAGE_NAME}:${IMAGE_TAG}
     container_name: hadoop1
