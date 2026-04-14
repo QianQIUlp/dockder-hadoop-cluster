@@ -67,6 +67,7 @@ jobs:
 
       - name: Build local image for vulnerability scan
         id: build_local
+        continue-on-error: true
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
@@ -77,6 +78,25 @@ jobs:
             HADOOP_TARBALL_SHA512=${{ vars.HADOOP_TARBALL_SHA512 }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Explain build failure with actionable hints
+        if: steps.build_local.outcome == 'failure'
+        env:
+          HADOOP_BASE_URL: ${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://dlcdn.apache.org/apache/hadoop/common' }}
+          HADOOP_TARBALL_SHA512: ${{ vars.HADOOP_TARBALL_SHA512 }}
+        run: |
+          echo "::error::Docker builder stage failed while downloading/verifying Hadoop tarball."
+          echo "::error::Check repository variables: HADOOP_TARBALL_SHA512 (must match hadoop-${{ vars.HADOOP_VERSION != '' && vars.HADOOP_VERSION || '3.4.1' }}.tar.gz) and optional HADOOP_BASE_URL."
+          echo "::notice::Recommended HADOOP_BASE_URL=${HADOOP_BASE_URL}"
+          echo "::notice::Current HADOOP_TARBALL_SHA512(prefix)=${HADOOP_TARBALL_SHA512:0:16}..."
+          {
+            echo "## Build Failure Hint"
+            echo "- Local image build failed in Hadoop download/verification stage."
+            echo "- Required variable: HADOOP_TARBALL_SHA512 (128-char SHA512 hex)."
+            echo "- Optional variable: HADOOP_BASE_URL (default: https://dlcdn.apache.org/apache/hadoop/common)."
+            echo "- This workflow will still upload SARIF placeholder to preserve diagnostics artifacts."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
 
       - name: Install Trivy CLI
         if: steps.build_local.outcome == 'success'
