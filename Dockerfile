@@ -24,17 +24,34 @@ FROM eclipse-temurin:8-jdk-jammy AS hadoop-builder
 
 ARG HADOOP_VERSION=3.4.1
 ARG HADOOP_BASE_URL=https://repo.huaweicloud.com/apache/hadoop/common
+ARG HADOOP_FALLBACK_BASE_URLS="https://dlcdn.apache.org/apache/hadoop/common https://archive.apache.org/dist/hadoop/common"
 ARG HADOOP_TARBALL_SHA512=""
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
-    curl -fsSL "${HADOOP_BASE_URL}/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz" -o /tmp/hadoop.tar.gz && \
+    HADOOP_ARCHIVE="hadoop-${HADOOP_VERSION}.tar.gz" && \
+    DOWNLOAD_OK="false" && \
+    for BASE_URL in "${HADOOP_BASE_URL}" ${HADOOP_FALLBACK_BASE_URLS}; do \
+        DOWNLOAD_URL="${BASE_URL}/hadoop-${HADOOP_VERSION}/${HADOOP_ARCHIVE}"; \
+        echo "Trying download source: ${DOWNLOAD_URL}"; \
+        if curl --retry 4 --retry-delay 3 --retry-all-errors --connect-timeout 20 --max-time 600 -fsSL "${DOWNLOAD_URL}" -o /tmp/hadoop.tar.gz; then \
+            DOWNLOAD_OK="true"; \
+            break; \
+        fi; \
+    done && \
+    if [ "${DOWNLOAD_OK}" != "true" ]; then \
+        echo "ERROR: failed to download ${HADOOP_ARCHIVE} from all configured mirrors"; \
+        exit 1; \
+    fi && \
     if [ -z "${HADOOP_TARBALL_SHA512}" ]; then \
         echo "ERROR: HADOOP_TARBALL_SHA512 is required"; \
         exit 1; \
     fi && \
-    echo "${HADOOP_TARBALL_SHA512}  /tmp/hadoop.tar.gz" | sha512sum -c - && \
+    if ! echo "${HADOOP_TARBALL_SHA512}  /tmp/hadoop.tar.gz" | sha512sum -c -; then \
+        echo "ERROR: checksum verification failed for ${HADOOP_ARCHIVE}"; \
+        exit 1; \
+    fi && \
     tar -xzf /tmp/hadoop.tar.gz -C /opt && \
     mv /opt/hadoop-${HADOOP_VERSION} /opt/hadoop && \
     rm -f /tmp/hadoop.tar.gz && \
