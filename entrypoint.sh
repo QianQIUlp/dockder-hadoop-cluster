@@ -22,6 +22,8 @@ WAIT_FOR_NAMENODE_RETRIES="${WAIT_FOR_NAMENODE_RETRIES:-60}"
 WAIT_FOR_NAMENODE_INTERVAL="${WAIT_FOR_NAMENODE_INTERVAL:-2}"
 HADOOP_DAEMON_USER="${HADOOP_DAEMON_USER:-hadoop}"
 ENABLE_SSH_USER_ENV="${ENABLE_SSH_USER_ENV:-false}"
+ROOT_DAEMON_ENV="HDFS_NAMENODE_USER=root HDFS_DATANODE_USER=root HDFS_SECONDARYNAMENODE_USER=root YARN_RESOURCEMANAGER_USER=root YARN_NODEMANAGER_USER=root MAPRED_HISTORYSERVER_USER=root"
+AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE="${AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE:-true}"
 
 # ----------------------------------------------------------------------
 # Runtime path defaults used by config templates
@@ -132,6 +134,10 @@ EOF
 
 run_as_daemon_user() {
     local cmd="$1"
+    if [[ "${HADOOP_DAEMON_USER}" == "root" ]]; then
+        bash -lc "${ROOT_DAEMON_ENV} ${cmd}"
+        return
+    fi
     if ! id -u "${HADOOP_DAEMON_USER}" >/dev/null 2>&1; then
         log "Daemon user ${HADOOP_DAEMON_USER} not found, fallback to root"
         bash -lc "${cmd}"
@@ -151,23 +157,76 @@ start_sshd() {
 prepare_runtime_dirs() {
     # Ensure all runtime data directories exist before daemon startup.
     # 在启动各 Daemon 前，确保运行目录均已创建。
-    mkdir -p \
-        "${HADOOP_TMP_DIR}" \
-        "${HDFS_NAMENODE_NAME_DIR}" \
-        "${HDFS_DATANODE_DATA_DIR}" \
-        "${YARN_NODEMANAGER_LOCAL_DIR}" \
-        "${YARN_NODEMANAGER_LOG_DIR}" \
-        "${MAPRED_HISTORY_TMP_DIR}" \
+    local runtime_dirs
+    local dir
+    runtime_dirs=(
+        "${HADOOP_LOG_DIR}"
+        "${HADOOP_TMP_DIR}"
+        "${HDFS_NAMENODE_NAME_DIR}"
+        "${HDFS_DATANODE_DATA_DIR}"
+        "${YARN_NODEMANAGER_LOCAL_DIR}"
+        "${YARN_NODEMANAGER_LOG_DIR}"
+        "${MAPRED_HISTORY_TMP_DIR}"
         "${MAPRED_HISTORY_DONE_DIR}"
-    chown -R "${HADOOP_DAEMON_USER}:${HADOOP_DAEMON_USER}" \
-        "${HADOOP_TMP_DIR}" \
-        "${HDFS_NAMENODE_NAME_DIR}" \
-        "${HDFS_DATANODE_DATA_DIR}" \
-        "${YARN_NODEMANAGER_LOCAL_DIR}" \
-        "${YARN_NODEMANAGER_LOG_DIR}" \
-        "${MAPRED_HISTORY_TMP_DIR}" \
-        "${MAPRED_HISTORY_DONE_DIR}" \
-        "${HADOOP_CONF_DIR}" || true
+    )
+
+    mkdir -p \
+        "${runtime_dirs[@]}"
+
+    # With dropped Linux capabilities, recursive chown can fail on bind-mounts.
+    # Use group+mode alignment first, then verify daemon-user writability.
+    # 在能力裁剪下 bind-mount 上 chown 可能失败，优先调整组与权限位。
+    for dir in "${runtime_dirs[@]}"; do
+        chgrp -R "${HADOOP_DAEMON_USER}" "${dir}" >/dev/null 2>&1 || true
+        chmod -R ug+rwX "${dir}" >/dev/null 2>&1 || true
+
+        # If group alignment is blocked on bind-mount metadata, open write bit
+        # for others to keep daemon user non-root in constrained containers.
+        # 若 bind-mount 元数据导致组授权失败，则放开 other 写位保证降权可运行。
+        if [[ "${HADOOP_DAEMON_USER}" != "root" ]] && ! su -s /bin/bash -c "test -w \"${dir}\"" "${HADOOP_DAEMON_USER}" >/dev/null 2>&1; then
+            chmod -R a+rwX "${dir}" >/dev/null 2>&1 || true
+        fi
+    done
+}
+
+ensure_daemon_user_writable() {
+    local check_paths
+    local p
+
+    if [[ "${HADOOP_DAEMON_USER}" == "root" ]]; then
+        return
+    fi
+
+    if ! id -u "${HADOOP_DAEMON_USER}" >/dev/null 2>&1; then
+        log "Daemon user ${HADOOP_DAEMON_USER} not found, fallback to root"
+        HADOOP_DAEMON_USER="root"
+        return
+    fi
+
+    if ! su -s /bin/bash -c "id -u >/dev/null" "${HADOOP_DAEMON_USER}" >/dev/null 2>&1; then
+        log "Cannot switch to daemon user ${HADOOP_DAEMON_USER} under current capabilities, fallback to root"
+        HADOOP_DAEMON_USER="root"
+        return
+    fi
+
+    check_paths=(
+        "${HADOOP_LOG_DIR}"
+        "${HADOOP_TMP_DIR}"
+        "${HDFS_NAMENODE_NAME_DIR}"
+        "${HDFS_DATANODE_DATA_DIR}"
+        "${YARN_NODEMANAGER_LOCAL_DIR}"
+        "${YARN_NODEMANAGER_LOG_DIR}"
+        "${MAPRED_HISTORY_TMP_DIR}"
+        "${MAPRED_HISTORY_DONE_DIR}"
+    )
+
+    for p in "${check_paths[@]}"; do
+        if ! su -s /bin/bash -c "test -w \"${p}\"" "${HADOOP_DAEMON_USER}" >/dev/null 2>&1; then
+            log "Daemon user ${HADOOP_DAEMON_USER} cannot write ${p}, fallback to root"
+            HADOOP_DAEMON_USER="root"
+            return
+        fi
+    done
 }
 
 wait_for_namenode() {
@@ -192,16 +251,54 @@ wait_for_namenode() {
 format_namenode_if_needed() {
     # Format only when explicitly enabled and metadata directory is empty.
     # 仅在显式开启 AUTO_FORMAT 且元数据目录为空时执行格式化。
+    local current_dir
+    local version_marker
+
+    current_dir="${HDFS_NAMENODE_NAME_DIR}/current"
+    version_marker="${HDFS_NAMENODE_NAME_DIR}/.formatted_by_image_version"
+
     if [[ "${AUTO_FORMAT}" == "true" ]]; then
-        if [[ ! -d "${HDFS_NAMENODE_NAME_DIR}/current" ]]; then
+        if [[ ! -d "${current_dir}" ]]; then
             log "NameNode metadata not found, formatting..."
             run_as_daemon_user "hdfs namenode -format -nonInteractive"
+            printf '%s\n' "${HADOOP_VERSION}" > "${version_marker}" || true
+        elif [[ ! -f "${version_marker}" ]] || [[ "$(cat "${version_marker}" 2>/dev/null || true)" != "${HADOOP_VERSION}" ]]; then
+            log "Detected metadata from different/unknown image version, reformatting NameNode metadata"
+            rm -rf "${HDFS_NAMENODE_NAME_DIR:?}"/*
+            mkdir -p "${HDFS_NAMENODE_NAME_DIR}"
+            run_as_daemon_user "hdfs namenode -format -nonInteractive"
+            printf '%s\n' "${HADOOP_VERSION}" > "${version_marker}" || true
         else
             log "NameNode metadata exists, skipping format"
         fi
     else
         log "AUTO_FORMAT=false, skipping format"
     fi
+}
+
+reset_datanode_data_if_needed() {
+    local current_dir
+    local version_marker
+
+    if [[ "${AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE}" != "true" ]]; then
+        return
+    fi
+
+    current_dir="${HDFS_DATANODE_DATA_DIR}/current"
+    version_marker="${HDFS_DATANODE_DATA_DIR}/.formatted_by_image_version"
+
+    if [[ ! -d "${current_dir}" ]]; then
+        printf '%s\n' "${HADOOP_VERSION}" > "${version_marker}" || true
+        return
+    fi
+
+    if [[ ! -f "${version_marker}" ]] || [[ "$(cat "${version_marker}" 2>/dev/null || true)" != "${HADOOP_VERSION}" ]]; then
+        log "Detected DataNode data from different/unknown image version, resetting ${HDFS_DATANODE_DATA_DIR}"
+        rm -rf "${HDFS_DATANODE_DATA_DIR:?}"/*
+        mkdir -p "${HDFS_DATANODE_DATA_DIR}"
+    fi
+
+    printf '%s\n' "${HADOOP_VERSION}" > "${version_marker}" || true
 }
 
 start_role_daemons() {
@@ -240,6 +337,8 @@ start_role_daemons() {
 render_hadoop_configs
 ensure_ssh_runtime_env
 prepare_runtime_dirs
+ensure_daemon_user_writable
+reset_datanode_data_if_needed
 start_sshd
 wait_for_namenode
 start_role_daemons

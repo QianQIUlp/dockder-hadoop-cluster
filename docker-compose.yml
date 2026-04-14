@@ -29,6 +29,7 @@ x-hadoop-common-environment: &hadoop-common-environment
   HADOOP_PROXYUSER_ROOT_GROUPS: ${HADOOP_PROXYUSER_ROOT_GROUPS:-root}
   HADOOP_DAEMON_USER: ${HADOOP_DAEMON_USER:-hadoop}
   ENABLE_SSH_USER_ENV: ${ENABLE_SSH_USER_ENV:-false}
+  AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE: ${AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE:-true}
 
 # =====================================================================
 # Shared least-privilege security block.

@@ -49,6 +49,8 @@ docker-hadoop-cluster/
 ├── docker-compose.secure.yml
 ├── Dockerfile
 ├── entrypoint.sh
+├── scripts/
+│   └── up.sh
 ├── README.md
 └── README_EN.md
 ```
@@ -82,15 +84,18 @@ cp .env.example .env
 ### 2. Build and start cluster
 
 ```bash
-docker compose up -d --build
+./scripts/up.sh
 ```
 
-This command now builds the shared core image only once (triggered by hadoop1). hadoop2/hadoop3 reuse the same image tag and no longer trigger duplicate builds.
+This command now does two things:
 
-If you already have old dangling images from previous builds, clean them once with:
+- Builds the shared core image only once (triggered by hadoop1), while hadoop2/hadoop3 reuse the same image tag.
+- Cleans dangling images and stale tags related to this repository after startup, so the local image set stays close to a single required runtime image.
+
+If you still prefer native compose directly, you can run:
 
 ```bash
-docker image prune -f
+docker compose up -d --build
 ```
 
 Containers will run role-based initialization automatically after startup.
@@ -98,7 +103,7 @@ Containers will run role-based initialization automatically after startup.
 If you want to apply extra resource hardening:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.secure.yml up -d --build
+./scripts/up.sh --secure
 ```
 
 ### 3. Verify container and daemon status
@@ -146,6 +151,7 @@ Start from `.env.example`, then adjust local values. `.env` is no longer tracked
 - NameNode auto-format switch
 - root proxy allowlist (`HADOOP_PROXYUSER_ROOT_HOSTS` / `HADOOP_PROXYUSER_ROOT_GROUPS`)
 - daemon user and SSH env injection switch (`HADOOP_DAEMON_USER` / `ENABLE_SSH_USER_ENV`)
+- DataNode auto-reset on version change (`AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE`)
 - Healthcheck and startup-gate behavior
 
 ---

@@ -51,6 +51,10 @@ RUN apt-get update && \
 FROM eclipse-temurin:8-jdk-jammy
 
 ARG HADOOP_VERSION=3.4.1
+ARG IMAGE_SOURCE=https://github.com/QianQIUlp/dockder-hadoop-cluster
+
+LABEL org.opencontainers.image.source="${IMAGE_SOURCE}" \
+    org.opencontainers.image.title="dockder-hadoop-cluster"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     JAVA_HOME=/opt/java/openjdk \
@@ -66,6 +70,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* && \
     groupadd --gid 10001 hadoop && \
     useradd --uid 10001 --gid hadoop --create-home --home-dir /home/hadoop --shell /bin/bash hadoop && \
+    usermod -a -G hadoop root && \
     mkdir -p /run/sshd /root/.ssh /home/hadoop/.ssh /hadoop/dfs/name /hadoop/dfs/data /hadoop/yarn/local /hadoop/yarn/logs /hadoop/mr-history/tmp /hadoop/mr-history/done /hadoop/tmp /hadoop/logs ${HADOOP_CONF_TEMPLATE_DIR}
 
 # Copy Hadoop binaries from builder stage.
@@ -101,10 +106,10 @@ RUN chmod +x /entrypoint.sh && \
     sed -ri 's/^#?PasswordAuthentication\s+.*/PasswordAuthentication no/' /etc/ssh/sshd_config && \
     sed -ri 's/^#?PubkeyAuthentication\s+.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config && \
     printf 'export JAVA_HOME=%s\nexport HADOOP_HOME=%s\nexport HADOOP_CONF_DIR=%s\n' "${JAVA_HOME}" "${HADOOP_HOME}" "${HADOOP_CONF_DIR}" >> ${HADOOP_CONF_DIR}/hadoop-env.sh && \
-    printf 'export HDFS_NAMENODE_USER=hadoop\nexport HDFS_DATANODE_USER=hadoop\nexport HDFS_SECONDARYNAMENODE_USER=hadoop\nexport YARN_RESOURCEMANAGER_USER=hadoop\nexport YARN_NODEMANAGER_USER=hadoop\n' >> ${HADOOP_CONF_DIR}/hadoop-env.sh && \
+    printf 'export HDFS_NAMENODE_USER=${HDFS_NAMENODE_USER:-hadoop}\nexport HDFS_DATANODE_USER=${HDFS_DATANODE_USER:-hadoop}\nexport HDFS_SECONDARYNAMENODE_USER=${HDFS_SECONDARYNAMENODE_USER:-hadoop}\nexport YARN_RESOURCEMANAGER_USER=${YARN_RESOURCEMANAGER_USER:-hadoop}\nexport YARN_NODEMANAGER_USER=${YARN_NODEMANAGER_USER:-hadoop}\nexport MAPRED_HISTORYSERVER_USER=${MAPRED_HISTORYSERVER_USER:-hadoop}\n' >> ${HADOOP_CONF_DIR}/hadoop-env.sh && \
     printf 'export JAVA_HOME=%s\n' "${JAVA_HOME}" >> ${HADOOP_CONF_DIR}/yarn-env.sh && \
     printf 'export JAVA_HOME=%s\n' "${JAVA_HOME}" >> ${HADOOP_CONF_DIR}/mapred-env.sh && \
-    chown -R hadoop:hadoop ${HADOOP_HOME} /hadoop /home/hadoop/.ssh
+    chown -R hadoop:hadoop /home/hadoop/.ssh
 
 EXPOSE 22 9000 9870 8088 19888 9868
 
