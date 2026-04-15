@@ -93,6 +93,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HADOOP_LOG_DIR=/hadoop/logs \
     PATH=/opt/java/openjdk/bin:/opt/hadoop-${HADOOP_VERSION}/bin:/opt/hadoop-${HADOOP_VERSION}/sbin:${PATH}
 
+# `curl` is a required runtime dependency for HTTP healthcheck probes used by
+# the container entrypoint/compose healthcheck logic, so do not remove it.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends openssh-server bash procps ca-certificates gettext-base curl && \
     rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub && \

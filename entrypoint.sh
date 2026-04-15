@@ -75,7 +75,7 @@ upsert_export_var() {
     tmp_file="$(mktemp)"
 
     if [[ -f "${file}" ]]; then
-        grep -vE "^export ${key}=" "${file}" > "${tmp_file}" || true
+        grep -vE "^export ${key}=" "${file}" > "${tmp_file}" 2>/dev/null || touch "${tmp_file}"
     fi
 
     printf 'export %s=%q\n' "${key}" "${value}" >> "${tmp_file}"
@@ -153,12 +153,33 @@ ensure_ssh_runtime_env() {
     shared_private_key="${SSH_SHARED_DIR}/id_rsa"
     shared_public_key="${SSH_SHARED_DIR}/id_rsa.pub"
     shared_authorized_keys="${SSH_SHARED_DIR}/authorized_keys"
+    shared_key_lock_dir="${SSH_SHARED_DIR}/.id_rsa.lock"
+    shared_key_temp_prefix="${SSH_SHARED_DIR}/.id_rsa.tmp.$$"
 
-    if [[ ! -s "${shared_private_key}" || ! -s "${shared_public_key}" ]]; then
-        log "Generating shared SSH keypair in ${SSH_SHARED_DIR}"
-        ssh-keygen -t rsa -b 4096 -f "${shared_private_key}" -N ""
-    fi
+    while [[ ! -s "${shared_private_key}" || ! -s "${shared_public_key}" ]]; do
+        if mkdir "${shared_key_lock_dir}" >/dev/null 2>&1; then
+            cleanup_shared_key_lock() {
+                rm -f "${shared_key_temp_prefix}" "${shared_key_temp_prefix}.pub"
+                rmdir "${shared_key_lock_dir}" >/dev/null 2>&1 || true
+            }
+            trap cleanup_shared_key_lock RETURN
 
+            if [[ ! -s "${shared_private_key}" || ! -s "${shared_public_key}" ]]; then
+                log "Generating shared SSH keypair in ${SSH_SHARED_DIR}"
+                rm -f "${shared_key_temp_prefix}" "${shared_key_temp_prefix}.pub"
+                ssh-keygen -t rsa -b 4096 -f "${shared_key_temp_prefix}" -N ""
+                mv -f "${shared_key_temp_prefix}" "${shared_private_key}"
+                mv -f "${shared_key_temp_prefix}.pub" "${shared_public_key}"
+            fi
+
+            trap - RETURN
+            cleanup_shared_key_lock
+            unset -f cleanup_shared_key_lock
+            break
+        fi
+
+        sleep 1
+    done
     touch "${shared_authorized_keys}"
     pub_key="$(cat "${shared_public_key}")"
     if ! grep -qxF "${pub_key}" "${shared_authorized_keys}"; then

@@ -84,7 +84,7 @@ services:
     healthcheck:
       # NameNode is healthy when web endpoint responds and safemode is OFF.
       # 当 NameNode Web 端点可用且已退出安全模式时判定健康。
-      test: ["CMD-SHELL", "bash -lc 'pgrep -x sshd >/dev/null && curl -fsS http://127.0.0.1:${NAMENODE_HTTP_PORT}/ >/dev/null && hdfs dfsadmin -safemode get 2>/dev/null | grep -q \"Safe mode is OFF\"'"]
+      test: ["CMD-SHELL", "sh -ec 'pgrep -x sshd >/dev/null && curl -fsS http://127.0.0.1:${NAMENODE_HTTP_PORT}/ >/dev/null && safemode=\"$(hdfs dfsadmin -safemode get 2>/dev/null)\" && case \"$safemode\" in *\"Safe mode is OFF\"*) exit 0 ;; *) exit 1 ;; esac'"]
       interval: ${HEALTHCHECK_INTERVAL}
       timeout: ${HEALTHCHECK_TIMEOUT}
       retries: ${HEALTHCHECK_RETRIES}
