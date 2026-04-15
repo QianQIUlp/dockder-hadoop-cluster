@@ -113,6 +113,33 @@ If you want to apply extra resource hardening:
 ./scripts/up.sh --secure
 ```
 
+### 2.1 Build Time Tuning and Verbose Logs
+
+The Dockerfile now includes these default optimizations:
+
+- Prefer a faster mirror (`repo.huaweicloud.com`) first, then fall back to Apache mirrors.
+- Reduce retry/timeout (`retry=2`, `max-time=180`) to avoid long "stuck but eventually succeeds" waits.
+- Print per-mirror download start/success/failure with elapsed time.
+
+To get full step-by-step build output, use:
+
+```bash
+docker build --progress=plain \
+  --build-arg HADOOP_TARBALL_SHA512=<official-sha512> \
+  -t dockder-hadoop-cluster:dev .
+```
+
+You can also tune behavior per environment:
+
+```bash
+docker build --progress=plain \
+  --build-arg HADOOP_BASE_URL=https://dlcdn.apache.org/apache/hadoop/common \
+  --build-arg HADOOP_DOWNLOAD_RETRY=1 \
+  --build-arg HADOOP_DOWNLOAD_MAX_TIME=120 \
+  --build-arg HADOOP_TARBALL_SHA512=<official-sha512> \
+  -t dockder-hadoop-cluster:dev .
+```
+
 ### 3. Verify container and daemon status
 
 ```bash

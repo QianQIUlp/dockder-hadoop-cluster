@@ -115,6 +115,33 @@ docker compose up -d --build
 ./scripts/up.sh --secure
 ```
 
+### 2.1 构建耗时优化与详细日志
+
+Dockerfile 已内置以下默认优化：
+
+- 默认优先使用更快镜像源（`repo.huaweicloud.com`），再回退官方源。
+- 下载重试和单次超时下调（默认 `retry=2`、`max-time=180`），避免长时间“假卡住”。
+- 下载阶段增加每个镜像源的开始/成功/失败与耗时日志。
+
+如果你希望看到完整构建日志，建议使用：
+
+```bash
+docker build --progress=plain \
+  --build-arg HADOOP_TARBALL_SHA512=<官方SHA512> \
+  -t dockder-hadoop-cluster:dev .
+```
+
+如果你网络环境不同，也可手动调整：
+
+```bash
+docker build --progress=plain \
+  --build-arg HADOOP_BASE_URL=https://dlcdn.apache.org/apache/hadoop/common \
+  --build-arg HADOOP_DOWNLOAD_RETRY=1 \
+  --build-arg HADOOP_DOWNLOAD_MAX_TIME=120 \
+  --build-arg HADOOP_TARBALL_SHA512=<官方SHA512> \
+  -t dockder-hadoop-cluster:dev .
+```
+
 ### 3. 查看容器状态与进程
 
 ```bash
