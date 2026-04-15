@@ -35,11 +35,14 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends curl ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
     HADOOP_ARCHIVE_CANDIDATES="hadoop-${HADOOP_VERSION}.tar.gz" && \
-    if [ "${TARGETARCH}" = "amd64" ]; then \
-        HADOOP_ARCHIVE_CANDIDATES="hadoop-${HADOOP_VERSION}-x86_64.tar.gz hadoop-${HADOOP_VERSION}-amd64.tar.gz ${HADOOP_ARCHIVE_CANDIDATES}"; \
-    elif [ "${TARGETARCH}" = "arm64" ]; then \
-        HADOOP_ARCHIVE_CANDIDATES="hadoop-${HADOOP_VERSION}-aarch64.tar.gz hadoop-${HADOOP_VERSION}-arm64.tar.gz ${HADOOP_ARCHIVE_CANDIDATES}"; \
-    fi && \
+    case "${TARGETARCH}" in \
+        amd64) \
+            HADOOP_ARCHIVE_CANDIDATES="hadoop-${HADOOP_VERSION}-x86_64.tar.gz hadoop-${HADOOP_VERSION}-amd64.tar.gz ${HADOOP_ARCHIVE_CANDIDATES}" \
+            ;; \
+        arm64) \
+            HADOOP_ARCHIVE_CANDIDATES="hadoop-${HADOOP_VERSION}-aarch64.tar.gz hadoop-${HADOOP_VERSION}-arm64.tar.gz ${HADOOP_ARCHIVE_CANDIDATES}" \
+            ;; \
+    esac && \
     EXPECTED_SHA512="${HADOOP_TARBALL_SHA512}" && \
     if [ "${TARGETARCH}" = "amd64" ] && [ -n "${HADOOP_TARBALL_SHA512_AMD64}" ]; then \
         EXPECTED_SHA512="${HADOOP_TARBALL_SHA512_AMD64}"; \
@@ -77,6 +80,7 @@ RUN apt-get update && \
             fi; \
             DOWNLOAD_OK="true"; \
             FOUND_ARCHIVE="${HADOOP_ARCHIVE}"; \
+            # Exit both loops after successful download and verification. \
             break 2; \
         done; \
     done && \
