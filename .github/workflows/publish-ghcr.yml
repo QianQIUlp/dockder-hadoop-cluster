@@ -27,13 +27,23 @@ jobs:
       - name: Validate tarball checksum variable
         env:
           HADOOP_TARBALL_SHA512: ${{ vars.HADOOP_TARBALL_SHA512 }}
+          HADOOP_TARBALL_SHA512_AMD64: ${{ vars.HADOOP_TARBALL_SHA512_AMD64 }}
+          HADOOP_TARBALL_SHA512_ARM64: ${{ vars.HADOOP_TARBALL_SHA512_ARM64 }}
         run: |
-          if [[ -z "${HADOOP_TARBALL_SHA512}" ]]; then
-            echo "::error::Repository variable HADOOP_TARBALL_SHA512 is required."
+          if [[ -z "${HADOOP_TARBALL_SHA512}" && -z "${HADOOP_TARBALL_SHA512_AMD64}" && -z "${HADOOP_TARBALL_SHA512_ARM64}" ]]; then
+            echo "::error::At least one checksum variable is required: HADOOP_TARBALL_SHA512 or arch-specific HADOOP_TARBALL_SHA512_AMD64/HADOOP_TARBALL_SHA512_ARM64."
             exit 1
           fi
-          if [[ ! "${HADOOP_TARBALL_SHA512}" =~ ^[a-fA-F0-9]{128}$ ]]; then
+          if [[ -n "${HADOOP_TARBALL_SHA512}" && ! "${HADOOP_TARBALL_SHA512}" =~ ^[a-fA-F0-9]{128}$ ]]; then
             echo "::error::HADOOP_TARBALL_SHA512 must be a 128-char SHA512 hex string."
+            exit 1
+          fi
+          if [[ -n "${HADOOP_TARBALL_SHA512_AMD64}" && ! "${HADOOP_TARBALL_SHA512_AMD64}" =~ ^[a-fA-F0-9]{128}$ ]]; then
+            echo "::error::HADOOP_TARBALL_SHA512_AMD64 must be a 128-char SHA512 hex string."
+            exit 1
+          fi
+          if [[ -n "${HADOOP_TARBALL_SHA512_ARM64}" && ! "${HADOOP_TARBALL_SHA512_ARM64}" =~ ^[a-fA-F0-9]{128}$ ]]; then
+            echo "::error::HADOOP_TARBALL_SHA512_ARM64 must be a 128-char SHA512 hex string."
             exit 1
           fi
 
@@ -41,9 +51,16 @@ jobs:
         env:
           HADOOP_BASE_URL: ${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://dlcdn.apache.org/apache/hadoop/common' }}
           HADOOP_TARBALL_SHA512: ${{ vars.HADOOP_TARBALL_SHA512 }}
+          HADOOP_TARBALL_SHA512_AMD64: ${{ vars.HADOOP_TARBALL_SHA512_AMD64 }}
+          HADOOP_TARBALL_SHA512_ARM64: ${{ vars.HADOOP_TARBALL_SHA512_ARM64 }}
         run: |
           echo "HADOOP_BASE_URL=${HADOOP_BASE_URL}"
           echo "HADOOP_TARBALL_SHA512(prefix)=${HADOOP_TARBALL_SHA512:0:16}..."
+          echo "HADOOP_TARBALL_SHA512_AMD64(prefix)=${HADOOP_TARBALL_SHA512_AMD64:0:16}..."
+          echo "HADOOP_TARBALL_SHA512_ARM64(prefix)=${HADOOP_TARBALL_SHA512_ARM64:0:16}..."
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@e81ee484f420526de2c39ec4608e94f719bfeab4 # v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -76,6 +93,8 @@ jobs:
           build-args: |
             HADOOP_BASE_URL=${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://dlcdn.apache.org/apache/hadoop/common' }}
             HADOOP_TARBALL_SHA512=${{ vars.HADOOP_TARBALL_SHA512 }}
+            HADOOP_TARBALL_SHA512_AMD64=${{ vars.HADOOP_TARBALL_SHA512_AMD64 }}
+            HADOOP_TARBALL_SHA512_ARM64=${{ vars.HADOOP_TARBALL_SHA512_ARM64 }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -84,47 +103,39 @@ jobs:
         env:
           HADOOP_BASE_URL: ${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://dlcdn.apache.org/apache/hadoop/common' }}
           HADOOP_TARBALL_SHA512: ${{ vars.HADOOP_TARBALL_SHA512 }}
+          HADOOP_TARBALL_SHA512_AMD64: ${{ vars.HADOOP_TARBALL_SHA512_AMD64 }}
+          HADOOP_TARBALL_SHA512_ARM64: ${{ vars.HADOOP_TARBALL_SHA512_ARM64 }}
         run: |
           echo "::error::Docker builder stage failed while downloading/verifying Hadoop tarball."
-          echo "::error::Check repository variables: HADOOP_TARBALL_SHA512 (must match hadoop-${{ vars.HADOOP_VERSION != '' && vars.HADOOP_VERSION || '3.4.1' }}.tar.gz) and optional HADOOP_BASE_URL."
+          echo "::error::Check repository variables: HADOOP_TARBALL_SHA512 (generic) or arch-specific HADOOP_TARBALL_SHA512_AMD64/HADOOP_TARBALL_SHA512_ARM64, and optional HADOOP_BASE_URL."
           echo "::notice::Recommended HADOOP_BASE_URL=${HADOOP_BASE_URL}"
           echo "::notice::Current HADOOP_TARBALL_SHA512(prefix)=${HADOOP_TARBALL_SHA512:0:16}..."
+          echo "::notice::Current HADOOP_TARBALL_SHA512_AMD64(prefix)=${HADOOP_TARBALL_SHA512_AMD64:0:16}..."
+          echo "::notice::Current HADOOP_TARBALL_SHA512_ARM64(prefix)=${HADOOP_TARBALL_SHA512_ARM64:0:16}..."
           {
             echo "## Build Failure Hint"
             echo "- Local image build failed in Hadoop download/verification stage."
-            echo "- Required variable: HADOOP_TARBALL_SHA512 (128-char SHA512 hex)."
+            echo "- Required checksum: HADOOP_TARBALL_SHA512 (generic) or arch-specific checksums."
             echo "- Optional variable: HADOOP_BASE_URL (default: https://dlcdn.apache.org/apache/hadoop/common)."
             echo "- This workflow will still upload SARIF placeholder to preserve diagnostics artifacts."
           } >> "$GITHUB_STEP_SUMMARY"
           exit 1
 
-      - name: Install Trivy CLI
-        if: steps.build_local.outcome == 'success'
-        id: install_trivy
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget gnupg lsb-release
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
-          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list > /dev/null
-          sudo apt-get update
-          sudo apt-get install -y trivy
-
       - name: Scan image with Trivy
-        if: steps.build_local.outcome == 'success' && steps.install_trivy.outcome == 'success'
-        run: |
-          trivy image \
-            --ignore-unfixed \
-            --severity HIGH,CRITICAL \
-            --exit-code 1 \
-            --format table \
-            local/hadoop-cluster:scan
+        if: steps.build_local.outcome == 'success'
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: local/hadoop-cluster:scan
+          format: table
+          exit-code: 1
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+          trivyignores: .trivyignore
 
-      - name: Scan image with Trivy (SARIF)
-        if: always()
+      - name: Build fallback Trivy SARIF
+        if: steps.build_local.outcome != 'success'
         run: |
-          set -euo pipefail
-          if ! command -v trivy >/dev/null 2>&1 || ! docker image inspect local/hadoop-cluster:scan >/dev/null 2>&1; then
-            cat > trivy-results.sarif <<'EOF'
+          cat > trivy-results.sarif <<'EOF'
           {
             "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
             "version": "2.1.0",
@@ -150,14 +161,17 @@ jobs:
             ]
           }
           EOF
-            exit 0
-          fi
-          trivy image \
-            --ignore-unfixed \
-            --severity HIGH,CRITICAL \
-            --format sarif \
-            --output trivy-results.sarif \
-            local/hadoop-cluster:scan
+
+      - name: Scan image with Trivy (SARIF)
+        if: steps.build_local.outcome == 'success'
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: local/hadoop-cluster:scan
+          format: sarif
+          output: trivy-results.sarif
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+          trivyignores: .trivyignore
 
       - name: Upload Trivy SARIF artifact
         if: always()
@@ -173,11 +187,14 @@ jobs:
         with:
           context: .
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             HADOOP_BASE_URL=${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://dlcdn.apache.org/apache/hadoop/common' }}
             HADOOP_TARBALL_SHA512=${{ vars.HADOOP_TARBALL_SHA512 }}
+            HADOOP_TARBALL_SHA512_AMD64=${{ vars.HADOOP_TARBALL_SHA512_AMD64 }}
+            HADOOP_TARBALL_SHA512_ARM64=${{ vars.HADOOP_TARBALL_SHA512_ARM64 }}
           provenance: mode=max
           sbom: true
           cache-from: type=gha

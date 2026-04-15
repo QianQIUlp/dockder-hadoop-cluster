@@ -171,7 +171,10 @@ The repository includes `.github/workflows/publish-ghcr.yml`.
 
 Recommended before publishing:
 
-- In GitHub Settings -> Secrets and variables -> Actions -> Variables, set `HADOOP_TARBALL_SHA512` to the official SHA512 checksum of `hadoop-3.4.1.tar.gz` (required).
+- In GitHub Settings -> Secrets and variables -> Actions -> Variables, configure checksum variables:
+  - `HADOOP_TARBALL_SHA512` (generic archive), or
+  - `HADOOP_TARBALL_SHA512_AMD64` / `HADOOP_TARBALL_SHA512_ARM64` (arch-specific checksums).
+- Maintain `.trivyignore` in repo root for accepted-risk upstream vulnerabilities that cannot be fixed immediately.
 - Push a version tag to trigger publishing:
 
 ```bash
@@ -182,10 +185,10 @@ git push origin v3.3.6
 The workflow will automatically:
 
 - build a local image and scan HIGH/CRITICAL vulnerabilities with Trivy
-- build and push to GHCR
+- build and push multi-arch images (`linux/amd64` + `linux/arm64`) to GHCR
 - emit SBOM and provenance attestations
 - sign image digest with keyless Cosign (OIDC)
-- fail fast when `HADOOP_TARBALL_SHA512` is missing
+- fail fast when no valid Hadoop checksum variable is configured
 
 After the first publish, switch package visibility to Public in GitHub Packages if needed.
 

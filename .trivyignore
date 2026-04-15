@@ -1,0 +1,8 @@
+# Trivy ignore list for accepted-risk vulnerabilities in bundled upstream Hadoop dependencies.
+# Please keep each entry reviewed and justified for lab/teaching threat models.
+#
+# Format:
+# CVE-YYYY-NNNN # reason and scope
+#
+# Example:
+# CVE-2024-XXXX # Hadoop bundled dependency; upstream fix unavailable for current Hadoop version

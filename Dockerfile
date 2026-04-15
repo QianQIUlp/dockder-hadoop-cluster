@@ -22,49 +22,82 @@
 # ======================================================================
 FROM eclipse-temurin:11-jdk-jammy AS hadoop-builder
 
+ARG TARGETARCH
 ARG HADOOP_VERSION=3.4.1
 ARG HADOOP_BASE_URL=https://dlcdn.apache.org/apache/hadoop/common
 ARG HADOOP_FALLBACK_BASE_URLS="https://archive.apache.org/dist/hadoop/common https://repo.huaweicloud.com/apache/hadoop/common"
 ARG HADOOP_TARBALL_SHA512=""
+ARG HADOOP_TARBALL_SHA512_AMD64=""
+ARG HADOOP_TARBALL_SHA512_ARM64=""
 
 RUN apt-get update && \
+    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends curl ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
-    HADOOP_ARCHIVE="hadoop-${HADOOP_VERSION}.tar.gz" && \
+    HADOOP_ARCHIVE_CANDIDATES="hadoop-${HADOOP_VERSION}.tar.gz" && \
+    if [ "${TARGETARCH}" = "amd64" ]; then \
+        HADOOP_ARCHIVE_CANDIDATES="hadoop-${HADOOP_VERSION}-x86_64.tar.gz hadoop-${HADOOP_VERSION}-amd64.tar.gz ${HADOOP_ARCHIVE_CANDIDATES}"; \
+    elif [ "${TARGETARCH}" = "arm64" ]; then \
+        HADOOP_ARCHIVE_CANDIDATES="hadoop-${HADOOP_VERSION}-aarch64.tar.gz hadoop-${HADOOP_VERSION}-arm64.tar.gz ${HADOOP_ARCHIVE_CANDIDATES}"; \
+    fi && \
+    EXPECTED_SHA512="${HADOOP_TARBALL_SHA512}" && \
+    if [ "${TARGETARCH}" = "amd64" ] && [ -n "${HADOOP_TARBALL_SHA512_AMD64}" ]; then \
+        EXPECTED_SHA512="${HADOOP_TARBALL_SHA512_AMD64}"; \
+    elif [ "${TARGETARCH}" = "arm64" ] && [ -n "${HADOOP_TARBALL_SHA512_ARM64}" ]; then \
+        EXPECTED_SHA512="${HADOOP_TARBALL_SHA512_ARM64}"; \
+    fi && \
+    if [ -z "${EXPECTED_SHA512}" ]; then \
+        echo "ERROR: checksum is required (HADOOP_TARBALL_SHA512 or arch-specific checksum)"; \
+        exit 1; \
+    fi && \
     DOWNLOAD_OK="false" && \
-    for BASE_URL in "${HADOOP_BASE_URL}" ${HADOOP_FALLBACK_BASE_URLS}; do \
-        DOWNLOAD_URL="${BASE_URL}/hadoop-${HADOOP_VERSION}/${HADOOP_ARCHIVE}"; \
-        echo "Trying download source: ${DOWNLOAD_URL}"; \
-        if curl --retry 4 --retry-delay 3 --retry-all-errors --connect-timeout 20 --max-time 600 -fsSL "${DOWNLOAD_URL}" -o /tmp/hadoop.tar.gz; then \
+    FOUND_ARCHIVE="" && \
+    for HADOOP_ARCHIVE in ${HADOOP_ARCHIVE_CANDIDATES}; do \
+        for BASE_URL in "${HADOOP_BASE_URL}" ${HADOOP_FALLBACK_BASE_URLS}; do \
+            DOWNLOAD_URL="${BASE_URL}/hadoop-${HADOOP_VERSION}/${HADOOP_ARCHIVE}"; \
+            echo "Trying download source: ${DOWNLOAD_URL}"; \
+            if ! curl --retry 4 --retry-delay 3 --retry-all-errors --connect-timeout 20 --max-time 600 -fsSL "${DOWNLOAD_URL}" -o /tmp/hadoop.tar.gz; then \
+                continue; \
+            fi; \
+            if [ ! -s /tmp/hadoop.tar.gz ]; then \
+                echo "WARN: downloaded ${HADOOP_ARCHIVE} is empty"; \
+                rm -f /tmp/hadoop.tar.gz; \
+                continue; \
+            fi; \
+            ACTUAL_SHA512="$(sha512sum /tmp/hadoop.tar.gz | awk '{print $1}')" && \
+            if [ "${ACTUAL_SHA512}" != "${EXPECTED_SHA512}" ]; then \
+                echo "WARN: checksum verification failed for ${HADOOP_ARCHIVE}, trying next candidate"; \
+                rm -f /tmp/hadoop.tar.gz; \
+                continue; \
+            fi; \
+            if ! tar -tzf /tmp/hadoop.tar.gz >/dev/null 2>&1; then \
+                echo "WARN: ${HADOOP_ARCHIVE} is not a valid gzip tar archive, trying next candidate"; \
+                rm -f /tmp/hadoop.tar.gz; \
+                continue; \
+            fi; \
             DOWNLOAD_OK="true"; \
-            break; \
-        fi; \
+            FOUND_ARCHIVE="${HADOOP_ARCHIVE}"; \
+            break 2; \
+        done; \
     done && \
     if [ "${DOWNLOAD_OK}" != "true" ]; then \
-        echo "ERROR: failed to download ${HADOOP_ARCHIVE} from all configured mirrors"; \
+        echo "ERROR: failed to download and verify hadoop-${HADOOP_VERSION} tarball from all configured mirrors"; \
         exit 1; \
     fi && \
-    if [ ! -s /tmp/hadoop.tar.gz ]; then \
-        echo "ERROR: downloaded ${HADOOP_ARCHIVE} is empty"; \
-        exit 1; \
-    fi && \
-    if [ -z "${HADOOP_TARBALL_SHA512}" ]; then \
-        echo "ERROR: HADOOP_TARBALL_SHA512 is required"; \
-        exit 1; \
-    fi && \
-    ACTUAL_SHA512="$(sha512sum /tmp/hadoop.tar.gz | awk '{print $1}')" && \
-    if [ "${ACTUAL_SHA512}" != "${HADOOP_TARBALL_SHA512}" ]; then \
-        echo "ERROR: checksum verification failed for ${HADOOP_ARCHIVE}"; \
-        echo "ERROR: expected=${HADOOP_TARBALL_SHA512}"; \
-        echo "ERROR: actual=${ACTUAL_SHA512}"; \
-        exit 1; \
-    fi && \
-    if ! tar -tzf /tmp/hadoop.tar.gz >/dev/null 2>&1; then \
-        echo "ERROR: ${HADOOP_ARCHIVE} is not a valid gzip tar archive"; \
-        exit 1; \
-    fi && \
+    echo "Selected Hadoop archive: ${FOUND_ARCHIVE}" && \
     tar -xzf /tmp/hadoop.tar.gz -C /opt && \
-    mv /opt/hadoop-${HADOOP_VERSION} /opt/hadoop && \
+    if [ -d "/opt/hadoop-${HADOOP_VERSION}" ]; then \
+        mv "/opt/hadoop-${HADOOP_VERSION}" /opt/hadoop; \
+    elif [ -d "/opt/${FOUND_ARCHIVE%.tar.gz}" ]; then \
+        mv "/opt/${FOUND_ARCHIVE%.tar.gz}" /opt/hadoop; \
+    else \
+        CANDIDATE_DIR="$(find /opt -maxdepth 1 -type d -name "hadoop-${HADOOP_VERSION}*" | head -n 1)" && \
+        if [ -z "${CANDIDATE_DIR}" ]; then \
+            echo "ERROR: unable to locate extracted Hadoop directory"; \
+            exit 1; \
+        fi && \
+        mv "${CANDIDATE_DIR}" /opt/hadoop; \
+    fi && \
     rm -f /tmp/hadoop.tar.gz && \
     rm -rf /opt/hadoop/share/doc && \
     find /opt/hadoop/share/hadoop -type d \( -name sources -o -name jdiff \) -prune -exec rm -rf {} + && \
@@ -96,6 +129,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # `curl` is a required runtime dependency for HTTP healthcheck probes used by
 # the container entrypoint/compose healthcheck logic, so do not remove it.
 RUN apt-get update && \
+    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends openssh-server bash procps ca-certificates gettext-base curl && \
     rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub && \
     rm -rf /var/lib/apt/lists/* && \
