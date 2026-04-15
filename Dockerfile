@@ -24,13 +24,17 @@ FROM eclipse-temurin:11-jdk-jammy AS hadoop-builder
 
 ARG TARGETARCH
 ARG HADOOP_VERSION=3.4.1
-ARG HADOOP_BASE_URL=https://dlcdn.apache.org/apache/hadoop/common
-ARG HADOOP_FALLBACK_BASE_URLS="https://archive.apache.org/dist/hadoop/common https://repo.huaweicloud.com/apache/hadoop/common"
+ARG HADOOP_BASE_URL=https://repo.huaweicloud.com/apache/hadoop/common
+ARG HADOOP_FALLBACK_BASE_URLS="https://dlcdn.apache.org/hadoop/common https://archive.apache.org/dist/hadoop/common"
+ARG HADOOP_DOWNLOAD_RETRY=2
+ARG HADOOP_DOWNLOAD_RETRY_DELAY=2
+ARG HADOOP_DOWNLOAD_CONNECT_TIMEOUT=10
+ARG HADOOP_DOWNLOAD_MAX_TIME=180
 ARG HADOOP_TARBALL_SHA512=""
 ARG HADOOP_TARBALL_SHA512_AMD64=""
 ARG HADOOP_TARBALL_SHA512_ARM64=""
 
-RUN apt-get update && \
+RUN apt-get update -o Acquire::Retries=3 && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends curl ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
@@ -58,10 +62,15 @@ RUN apt-get update && \
     for HADOOP_ARCHIVE in ${HADOOP_ARCHIVE_CANDIDATES}; do \
         for BASE_URL in "${HADOOP_BASE_URL}" ${HADOOP_FALLBACK_BASE_URLS}; do \
             DOWNLOAD_URL="${BASE_URL}/hadoop-${HADOOP_VERSION}/${HADOOP_ARCHIVE}"; \
-            echo "Trying download source: ${DOWNLOAD_URL}"; \
-            if ! curl --retry 4 --retry-delay 3 --retry-all-errors --connect-timeout 20 --max-time 600 -fsSL "${DOWNLOAD_URL}" -o /tmp/hadoop.tar.gz; then \
+            START_TS="$(date +%s)"; \
+            echo "[HADOOP-DOWNLOAD] Trying source: ${DOWNLOAD_URL}"; \
+            if ! curl --retry "${HADOOP_DOWNLOAD_RETRY}" --retry-delay "${HADOOP_DOWNLOAD_RETRY_DELAY}" --retry-all-errors --connect-timeout "${HADOOP_DOWNLOAD_CONNECT_TIMEOUT}" --max-time "${HADOOP_DOWNLOAD_MAX_TIME}" -fL --show-error --progress-bar "${DOWNLOAD_URL}" -o /tmp/hadoop.tar.gz; then \
+                END_TS="$(date +%s)"; \
+                echo "[HADOOP-DOWNLOAD] Failed from ${BASE_URL} after $((END_TS - START_TS))s"; \
                 continue; \
             fi; \
+            END_TS="$(date +%s)"; \
+            echo "[HADOOP-DOWNLOAD] Success from ${BASE_URL} in $((END_TS - START_TS))s"; \
             if [ ! -s /tmp/hadoop.tar.gz ]; then \
                 echo "WARN: downloaded ${HADOOP_ARCHIVE} is empty"; \
                 rm -f /tmp/hadoop.tar.gz; \
@@ -132,7 +141,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # `curl` is a required runtime dependency for HTTP healthcheck probes used by
 # the container entrypoint/compose healthcheck logic, so do not remove it.
-RUN apt-get update && \
+RUN apt-get update -o Acquire::Retries=3 && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends openssh-server bash procps ca-certificates gettext-base curl && \
     rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub && \
