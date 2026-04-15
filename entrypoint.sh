@@ -24,6 +24,19 @@ HADOOP_DAEMON_USER="${HADOOP_DAEMON_USER:-hadoop}"
 ENABLE_SSH_USER_ENV="${ENABLE_SSH_USER_ENV:-false}"
 ROOT_DAEMON_ENV="HDFS_NAMENODE_USER=root HDFS_DATANODE_USER=root HDFS_SECONDARYNAMENODE_USER=root YARN_RESOURCEMANAGER_USER=root YARN_NODEMANAGER_USER=root MAPRED_HISTORYSERVER_USER=root"
 AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE="${AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE:-true}"
+SSH_SHARED_DIR="${SSH_SHARED_DIR:-/shared-ssh}"
+
+# ----------------------------------------------------------------------
+# JVM memory defaults for container runtime
+# 容器运行时 JVM 内存默认值
+# ----------------------------------------------------------------------
+HADOOP_HEAPSIZE_MAX="${HADOOP_HEAPSIZE_MAX:-1024}"
+HADOOP_NAMENODE_OPTS="${HADOOP_NAMENODE_OPTS:--Xms512m -Xmx1024m}"
+HADOOP_DATANODE_OPTS="${HADOOP_DATANODE_OPTS:--Xms256m -Xmx768m}"
+HADOOP_SECONDARYNAMENODE_OPTS="${HADOOP_SECONDARYNAMENODE_OPTS:--Xms256m -Xmx512m}"
+YARN_RESOURCEMANAGER_OPTS="${YARN_RESOURCEMANAGER_OPTS:--Xms256m -Xmx768m}"
+YARN_NODEMANAGER_OPTS="${YARN_NODEMANAGER_OPTS:--Xms256m -Xmx512m}"
+MAPRED_HISTORYSERVER_OPTS="${MAPRED_HISTORYSERVER_OPTS:--Xms256m -Xmx512m}"
 
 # ----------------------------------------------------------------------
 # Runtime path defaults used by config templates
@@ -53,6 +66,35 @@ log() {
     printf '[entrypoint] %s\n' "$*"
 }
 
+upsert_export_var() {
+    local file="$1"
+    local key="$2"
+    local value="$3"
+    local tmp_file
+
+    tmp_file="$(mktemp)"
+
+    if [[ -f "${file}" ]]; then
+        grep -vE "^export ${key}=" "${file}" > "${tmp_file}" 2>/dev/null || touch "${tmp_file}"
+    fi
+
+    printf 'export %s=%q\n' "${key}" "${value}" >> "${tmp_file}"
+    cat "${tmp_file}" > "${file}"
+    rm -f "${tmp_file}"
+}
+
+configure_jvm_runtime_env() {
+    # Apply JVM memory controls to Hadoop env files at runtime.
+    # 在运行时向 Hadoop 环境脚本注入 JVM 内存限制。
+    upsert_export_var "${HADOOP_CONF_DIR}/hadoop-env.sh" HADOOP_HEAPSIZE_MAX "${HADOOP_HEAPSIZE_MAX}"
+    upsert_export_var "${HADOOP_CONF_DIR}/hadoop-env.sh" HADOOP_NAMENODE_OPTS "${HADOOP_NAMENODE_OPTS}"
+    upsert_export_var "${HADOOP_CONF_DIR}/hadoop-env.sh" HADOOP_DATANODE_OPTS "${HADOOP_DATANODE_OPTS}"
+    upsert_export_var "${HADOOP_CONF_DIR}/hadoop-env.sh" HADOOP_SECONDARYNAMENODE_OPTS "${HADOOP_SECONDARYNAMENODE_OPTS}"
+    upsert_export_var "${HADOOP_CONF_DIR}/yarn-env.sh" YARN_RESOURCEMANAGER_OPTS "${YARN_RESOURCEMANAGER_OPTS}"
+    upsert_export_var "${HADOOP_CONF_DIR}/yarn-env.sh" YARN_NODEMANAGER_OPTS "${YARN_NODEMANAGER_OPTS}"
+    upsert_export_var "${HADOOP_CONF_DIR}/mapred-env.sh" MAPRED_HISTORYSERVER_OPTS "${MAPRED_HISTORYSERVER_OPTS}"
+}
+
 # ----------------------------------------------------------------------
 # Render XML/workers from templates.
 # 从模板渲染 XML/workers 配置文件。
@@ -75,10 +117,29 @@ render_hadoop_configs() {
 }
 
 ensure_ssh_runtime_env() {
-    # Ensure runtime directories for sshd and root key materials.
-    # 确保 sshd 与 root 密钥运行目录存在。
-    mkdir -p /run/sshd /root/.ssh
-    chmod 700 /root/.ssh
+    local shared_private_key
+    local shared_public_key
+    local shared_authorized_keys
+    local pub_key
+    local ssh_dir
+    local sync_hadoop_ssh
+    local owner
+    local group
+
+    # Ensure runtime directories for sshd and ssh key materials.
+    # 确保 sshd 与 ssh 密钥运行目录存在。
+    mkdir -p /run/sshd /root/.ssh "${SSH_SHARED_DIR}"
+    chmod 700 /root/.ssh "${SSH_SHARED_DIR}"
+
+    sync_hadoop_ssh="false"
+    if id -u hadoop >/dev/null 2>&1 && mkdir -p /home/hadoop/.ssh >/dev/null 2>&1; then
+        chmod 700 /home/hadoop/.ssh >/dev/null 2>&1 || true
+        if [[ -w /home/hadoop/.ssh ]]; then
+            sync_hadoop_ssh="true"
+        else
+            log "Skip syncing /home/hadoop/.ssh: not writable under current dropped capabilities"
+        fi
+    fi
 
     # Generate host keys at runtime so published images never contain private keys.
     # 运行期生成 host key，避免公开镜像层中固化私钥。
@@ -87,21 +148,74 @@ ensure_ssh_runtime_env() {
         ssh-keygen -A
     fi
 
-    # Generate one root keypair per container instance when absent.
-    # 若不存在 root key，则为当前容器生成唯一密钥对。
-    if [[ ! -s /root/.ssh/id_rsa ]]; then
-        log "Generating root SSH keypair"
-        ssh-keygen -t rsa -b 4096 -f /root/.ssh/id_rsa -N ""
-    fi
+    # Share one cluster keypair across all nodes via named volume.
+    # 通过命名卷在所有节点共享同一套 SSH 密钥。
+    shared_private_key="${SSH_SHARED_DIR}/id_rsa"
+    shared_public_key="${SSH_SHARED_DIR}/id_rsa.pub"
+    shared_authorized_keys="${SSH_SHARED_DIR}/authorized_keys"
+    shared_key_lock_dir="${SSH_SHARED_DIR}/.id_rsa.lock"
+    shared_key_temp_prefix="${SSH_SHARED_DIR}/.id_rsa.tmp.$$"
 
-    touch /root/.ssh/authorized_keys
-    local pub_key
-    pub_key="$(cat /root/.ssh/id_rsa.pub)"
-    if ! grep -qxF "${pub_key}" /root/.ssh/authorized_keys; then
-        printf '%s\n' "${pub_key}" >> /root/.ssh/authorized_keys
+    while [[ ! -s "${shared_private_key}" || ! -s "${shared_public_key}" ]]; do
+        if mkdir "${shared_key_lock_dir}" >/dev/null 2>&1; then
+            cleanup_shared_key_lock() {
+                rm -f "${shared_key_temp_prefix}" "${shared_key_temp_prefix}.pub"
+                rmdir "${shared_key_lock_dir}" >/dev/null 2>&1 || true
+            }
+            trap cleanup_shared_key_lock RETURN
+
+            if [[ ! -s "${shared_private_key}" || ! -s "${shared_public_key}" ]]; then
+                log "Generating shared SSH keypair in ${SSH_SHARED_DIR}"
+                rm -f "${shared_key_temp_prefix}" "${shared_key_temp_prefix}.pub"
+                ssh-keygen -t rsa -b 4096 -f "${shared_key_temp_prefix}" -N ""
+                mv -f "${shared_key_temp_prefix}" "${shared_private_key}"
+                mv -f "${shared_key_temp_prefix}.pub" "${shared_public_key}"
+            fi
+
+            trap - RETURN
+            cleanup_shared_key_lock
+            unset -f cleanup_shared_key_lock
+            break
+        fi
+
+        sleep 1
+    done
+    touch "${shared_authorized_keys}"
+    pub_key="$(cat "${shared_public_key}")"
+    if ! grep -qxF "${pub_key}" "${shared_authorized_keys}"; then
+        printf '%s\n' "${pub_key}" >> "${shared_authorized_keys}"
     fi
-    chmod 600 /root/.ssh/id_rsa /root/.ssh/authorized_keys
-    chmod 644 /root/.ssh/id_rsa.pub
+    chmod 600 "${shared_private_key}" "${shared_authorized_keys}"
+    chmod 644 "${shared_public_key}"
+
+    # Sync shared keys to root and hadoop users for start-*.sh compatibility.
+    # 将共享密钥同步到 root 与 hadoop 用户目录，兼容 start-*.sh 场景。
+    for ssh_dir in /root/.ssh /home/hadoop/.ssh; do
+        if [[ "${ssh_dir}" == "/home/hadoop/.ssh" ]] && [[ "${sync_hadoop_ssh}" != "true" ]]; then
+            continue
+        fi
+
+        cp -f "${shared_private_key}" "${ssh_dir}/id_rsa"
+        cp -f "${shared_public_key}" "${ssh_dir}/id_rsa.pub"
+        cp -f "${shared_authorized_keys}" "${ssh_dir}/authorized_keys"
+
+        cat > "${ssh_dir}/config" <<EOF
+Host *
+    StrictHostKeyChecking accept-new
+EOF
+
+        chmod 600 "${ssh_dir}/id_rsa" "${ssh_dir}/authorized_keys" "${ssh_dir}/config"
+        chmod 644 "${ssh_dir}/id_rsa.pub"
+
+        if [[ "${ssh_dir}" == "/root/.ssh" ]]; then
+            owner="root"
+            group="root"
+        else
+            owner="hadoop"
+            group="hadoop"
+        fi
+        chown -R "${owner}:${group}" "${ssh_dir}" >/dev/null 2>&1 || true
+    done
 
     # Export variables into SSH session environment.
     # 将关键变量注入 SSH 会话环境。
@@ -120,6 +234,13 @@ export JAVA_HOME=${JAVA_HOME}
 export HADOOP_HOME=${HADOOP_HOME}
 export HADOOP_CONF_DIR=${HADOOP_CONF_DIR}
 export PATH=\$PATH:${HADOOP_HOME}/bin:${HADOOP_HOME}/sbin:${JAVA_HOME}/bin
+export HADOOP_HEAPSIZE_MAX="${HADOOP_HEAPSIZE_MAX}"
+export HADOOP_NAMENODE_OPTS="${HADOOP_NAMENODE_OPTS}"
+export HADOOP_DATANODE_OPTS="${HADOOP_DATANODE_OPTS}"
+export HADOOP_SECONDARYNAMENODE_OPTS="${HADOOP_SECONDARYNAMENODE_OPTS}"
+export YARN_RESOURCEMANAGER_OPTS="${YARN_RESOURCEMANAGER_OPTS}"
+export YARN_NODEMANAGER_OPTS="${YARN_NODEMANAGER_OPTS}"
+export MAPRED_HISTORYSERVER_OPTS="${MAPRED_HISTORYSERVER_OPTS}"
 EOF
     chmod 644 /etc/profile.d/hadoop.sh
 
@@ -235,10 +356,11 @@ wait_for_namenode() {
         return
     fi
 
-    log "Waiting for NameNode ${NAMENODE_HOST}:${NAMENODE_RPC_PORT}"
+    log "Waiting for NameNode HTTP/RPC readiness on ${NAMENODE_HOST}:${NAMENODE_HTTP_PORT}/${NAMENODE_RPC_PORT}"
     for ((i = 1; i <= WAIT_FOR_NAMENODE_RETRIES; i++)); do
-        if bash -c "</dev/tcp/${NAMENODE_HOST}/${NAMENODE_RPC_PORT}" >/dev/null 2>&1; then
-            log "NameNode RPC is reachable"
+        if curl -fsS "http://${NAMENODE_HOST}:${NAMENODE_HTTP_PORT}/" >/dev/null 2>&1 && \
+            hdfs dfsadmin -fs "hdfs://${NAMENODE_HOST}:${NAMENODE_RPC_PORT}" -safemode get >/dev/null 2>&1; then
+            log "NameNode HTTP and RPC are reachable"
             return
         fi
         log "NameNode not ready yet (${i}/${WAIT_FOR_NAMENODE_RETRIES}); sleep ${WAIT_FOR_NAMENODE_INTERVAL}s"
@@ -335,6 +457,7 @@ start_role_daemons() {
 }
 
 render_hadoop_configs
+configure_jvm_runtime_env
 ensure_ssh_runtime_env
 prepare_runtime_dirs
 ensure_daemon_user_writable

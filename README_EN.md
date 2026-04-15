@@ -11,8 +11,10 @@ Key features:
 1. Hadoop configs are externalized in `conf/` for direct XML editing.
 2. A unified `entrypoint.sh` starts sshd and role-specific daemons automatically.
 3. `.env` provides centralized parameterization.
-4. `.gitignore` filters runtime artifacts and temporary binaries.
-5. A GHCR publishing workflow is included with vulnerability scanning, image signing, and SBOM/provenance.
+4. Docker named volumes are used by default, and a shared SSH key volume enables inter-node trust.
+5. `.gitignore` filters runtime artifacts and temporary binaries.
+6. A GHCR publishing workflow is included with vulnerability scanning, image signing, and SBOM/provenance.
+7. The runtime baseline is upgraded to Temurin JDK 11, aligned with Hadoop 3.4.x recommendations.
 
 > Note: To keep the image lean, common troubleshooting tools are not preinstalled by default.
 
@@ -41,7 +43,7 @@ docker-hadoop-cluster/
 │   ├── mapred-site.xml
 │   └── workers
 ├── .env.example
-├── data/                         # generated at runtime (ignored by .gitignore)
+├── data/                         # optional: only used if you switch back to bind mounts
 │   ├── hadoop1/
 │   ├── hadoop2/
 │   └── hadoop3/
@@ -91,6 +93,11 @@ This command now does two things:
 
 - Builds the shared core image only once (triggered by hadoop1), while hadoop2/hadoop3 reuse the same image tag.
 - Cleans dangling images and stale tags related to this repository after startup, so the local image set stays close to a single required runtime image.
+
+By default:
+
+- Runtime data is persisted in Docker named volumes (avoiding bind-mount I/O penalties on macOS/WSL2).
+- All three nodes reuse one shared SSH keypair volume, so scripts like `start-dfs.sh` and `start-yarn.sh` can SSH across nodes without password prompts.
 
 If you still prefer native compose directly, you can run:
 
@@ -153,6 +160,8 @@ Start from `.env.example`, then adjust local values. `.env` is no longer tracked
 - daemon user and SSH env injection switch (`HADOOP_DAEMON_USER` / `ENABLE_SSH_USER_ENV`)
 - DataNode auto-reset on version change (`AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE`)
 - Healthcheck and startup-gate behavior
+- Shared SSH directory and named-volume names
+- JVM heap limits (`HADOOP_HEAPSIZE_MAX`, `HADOOP_NAMENODE_OPTS`, `YARN_RESOURCEMANAGER_OPTS`, etc.)
 
 ---
 
@@ -204,7 +213,8 @@ If you need a full metadata reset:
 
 ```bash
 docker compose down
-# Remove data/hadoop1/name manually
+# Remove the NameNode metadata volume
+docker volume rm hadoop1_name
 docker compose up -d
 ```
 
@@ -216,7 +226,8 @@ A common issue in containerized Hadoop setups is missing variables across SSH se
 
 This project now handles it in `entrypoint.sh` by:
 
-- generating SSH host/root keys at container runtime (no baked private keys in image layers)
+- generating SSH host keys at runtime and generating/reusing one shared cluster SSH keypair in a named volume
+- syncing that shared keypair into both `root` and `hadoop` user SSH dirs for Hadoop batch scripts
 - writing `/root/.ssh/environment`
 - keeping `PermitUserEnvironment` disabled by default (enable only with `ENABLE_SSH_USER_ENV=true`)
 - generating `/etc/profile.d/hadoop.sh`

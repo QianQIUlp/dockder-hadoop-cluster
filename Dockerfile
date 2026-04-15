@@ -20,7 +20,7 @@
 # - Download Hadoop once in builder stage.
 # - 在构建阶段下载 Hadoop，避免在最终镜像保留下载工具。
 # ======================================================================
-FROM eclipse-temurin:8-jdk-jammy AS hadoop-builder
+FROM eclipse-temurin:11-jdk-jammy AS hadoop-builder
 
 ARG HADOOP_VERSION=3.4.1
 ARG HADOOP_BASE_URL=https://dlcdn.apache.org/apache/hadoop/common
@@ -76,7 +76,7 @@ RUN apt-get update && \
 # - Keep only Hadoop + sshd + minimal runtime tools.
 # - 仅保留 Hadoop、sshd 与最小运行工具。
 # ======================================================================
-FROM eclipse-temurin:8-jdk-jammy
+FROM eclipse-temurin:11-jdk-jammy
 
 ARG HADOOP_VERSION=3.4.1
 ARG IMAGE_SOURCE=https://github.com/QianQIUlp/dockder-hadoop-cluster
@@ -93,8 +93,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HADOOP_LOG_DIR=/hadoop/logs \
     PATH=/opt/java/openjdk/bin:/opt/hadoop-${HADOOP_VERSION}/bin:/opt/hadoop-${HADOOP_VERSION}/sbin:${PATH}
 
+# `curl` is a required runtime dependency for HTTP healthcheck probes used by
+# the container entrypoint/compose healthcheck logic, so do not remove it.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends openssh-server bash procps ca-certificates gettext-base && \
+    apt-get install -y --no-install-recommends openssh-server bash procps ca-certificates gettext-base curl && \
     rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub && \
     rm -rf /var/lib/apt/lists/* && \
     groupadd --gid 10001 hadoop && \

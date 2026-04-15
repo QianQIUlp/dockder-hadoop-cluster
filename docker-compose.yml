@@ -5,6 +5,7 @@
 x-hadoop-common-environment: &hadoop-common-environment
   HADOOP_VERSION: ${HADOOP_VERSION}
   HADOOP_CONF_TEMPLATE_DIR: ${HADOOP_CONF_TEMPLATE_DIR}
+  SSH_SHARED_DIR: ${SSH_SHARED_DIR:-/shared-ssh}
   NAMENODE_HOST: ${NAMENODE_HOST}
   NAMENODE_RPC_PORT: ${NAMENODE_RPC_PORT}
   NAMENODE_HTTP_PORT: ${NAMENODE_HTTP_PORT}
@@ -30,6 +31,13 @@ x-hadoop-common-environment: &hadoop-common-environment
   HADOOP_DAEMON_USER: ${HADOOP_DAEMON_USER:-hadoop}
   ENABLE_SSH_USER_ENV: ${ENABLE_SSH_USER_ENV:-false}
   AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE: ${AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE:-true}
+  HADOOP_HEAPSIZE_MAX: ${HADOOP_HEAPSIZE_MAX:-}
+  HADOOP_NAMENODE_OPTS: ${HADOOP_NAMENODE_OPTS:-}
+  HADOOP_DATANODE_OPTS: ${HADOOP_DATANODE_OPTS:-}
+  HADOOP_SECONDARYNAMENODE_OPTS: ${HADOOP_SECONDARYNAMENODE_OPTS:-}
+  YARN_RESOURCEMANAGER_OPTS: ${YARN_RESOURCEMANAGER_OPTS:-}
+  YARN_NODEMANAGER_OPTS: ${YARN_NODEMANAGER_OPTS:-}
+  MAPRED_HISTORYSERVER_OPTS: ${MAPRED_HISTORYSERVER_OPTS:-}
 
 # =====================================================================
 # Shared least-privilege security block.
@@ -69,13 +77,14 @@ services:
       # Mount all config templates once; entrypoint renders them to runtime conf.
       # 一次性挂载模板配置目录；entrypoint 会渲染到运行配置目录。
       - ./conf:${HADOOP_CONF_TEMPLATE_DIR}:ro
-      - ./data/hadoop1/name:${HDFS_NAMENODE_NAME_DIR}
-      - ./data/hadoop1/data:${HDFS_DATANODE_DATA_DIR}
-      - ./data/hadoop1/tmp:${HADOOP_TMP_DIR}
+      - ssh_keys:${SSH_SHARED_DIR:-/shared-ssh}
+      - hadoop1_name:${HDFS_NAMENODE_NAME_DIR}
+      - hadoop1_data:${HDFS_DATANODE_DATA_DIR}
+      - hadoop1_tmp:${HADOOP_TMP_DIR}
     healthcheck:
-      # NameNode is healthy when sshd + NameNode + local DataNode are alive.
-      # 当 sshd、NameNode、本地 DataNode 均存在时判定健康。
-      test: ["CMD-SHELL", "bash -lc 'pgrep -x sshd >/dev/null && jps | grep -q NameNode && jps | grep -q DataNode'"]
+      # NameNode is healthy when web endpoint responds and safemode is OFF.
+      # 当 NameNode Web 端点可用且已退出安全模式时判定健康。
+      test: ["CMD-SHELL", "sh -ec 'pgrep -x sshd >/dev/null && curl -fsS http://127.0.0.1:${NAMENODE_HTTP_PORT}/ >/dev/null && safemode=\"$(hdfs dfsadmin -safemode get 2>/dev/null)\" && case \"$safemode\" in *\"Safe mode is OFF\"*) exit 0 ;; *) exit 1 ;; esac'"]
       interval: ${HEALTHCHECK_INTERVAL}
       timeout: ${HEALTHCHECK_TIMEOUT}
       retries: ${HEALTHCHECK_RETRIES}
@@ -96,14 +105,15 @@ services:
       - "${HOST_BIND_IP:-127.0.0.1}:${RESOURCEMANAGER_WEB_PORT}:${RESOURCEMANAGER_WEB_PORT}"
     volumes:
       - ./conf:${HADOOP_CONF_TEMPLATE_DIR}:ro
-      - ./data/hadoop2/data:${HDFS_DATANODE_DATA_DIR}
-      - ./data/hadoop2/yarn-local:${YARN_NODEMANAGER_LOCAL_DIR}
-      - ./data/hadoop2/yarn-logs:${YARN_NODEMANAGER_LOG_DIR}
-      - ./data/hadoop2/tmp:${HADOOP_TMP_DIR}
+      - ssh_keys:${SSH_SHARED_DIR:-/shared-ssh}
+      - hadoop2_data:${HDFS_DATANODE_DATA_DIR}
+      - hadoop2_yarn_local:${YARN_NODEMANAGER_LOCAL_DIR}
+      - hadoop2_yarn_logs:${YARN_NODEMANAGER_LOG_DIR}
+      - hadoop2_tmp:${HADOOP_TMP_DIR}
     healthcheck:
-      # RM node is healthy when sshd + RM + NM + DataNode are alive.
-      # 当 sshd、ResourceManager、NodeManager、DataNode 都在时判定健康。
-      test: ["CMD-SHELL", "bash -lc 'pgrep -x sshd >/dev/null && jps | grep -q ResourceManager && jps | grep -q NodeManager && jps | grep -q DataNode'"]
+      # RM node is healthy when RM API responds and local worker daemons are up.
+      # 当 RM API 可用且本地 NodeManager/DataNode 已启动时判定健康。
+      test: ["CMD-SHELL", "bash -lc 'pgrep -x sshd >/dev/null && curl -fsS http://127.0.0.1:${RESOURCEMANAGER_WEB_PORT}/ws/v1/cluster/info >/dev/null && jps | grep -q NodeManager && jps | grep -q DataNode'"]
       interval: ${HEALTHCHECK_INTERVAL}
       timeout: ${HEALTHCHECK_TIMEOUT}
       retries: ${HEALTHCHECK_RETRIES}
@@ -112,10 +122,10 @@ services:
       - hadoop-net
     <<: *hadoop-common-security
     depends_on:
-      # Startup gate: wait until NameNode service becomes healthy.
-      # 启动闸门：等待 NameNode 节点健康后再启动本节点。
+      # Startup gate: entrypoint performs fine-grained readiness checks.
+      # 启动闸门：由 entrypoint 进行更细粒度可用性探测。
       hadoop1:
-        condition: service_healthy
+        condition: service_started
 
   hadoop3:
     image: ${IMAGE_NAME}:${IMAGE_TAG}
@@ -130,14 +140,15 @@ services:
       - "${HOST_BIND_IP:-127.0.0.1}:${JOBHISTORY_WEB_PORT}:${JOBHISTORY_WEB_PORT}"
     volumes:
       - ./conf:${HADOOP_CONF_TEMPLATE_DIR}:ro
-      - ./data/hadoop3/data:${HDFS_DATANODE_DATA_DIR}
-      - ./data/hadoop3/tmp:${HADOOP_TMP_DIR}
-      - ./data/hadoop3/mr-history-tmp:${MAPRED_HISTORY_TMP_DIR}
-      - ./data/hadoop3/mr-history-done:${MAPRED_HISTORY_DONE_DIR}
+      - ssh_keys:${SSH_SHARED_DIR:-/shared-ssh}
+      - hadoop3_data:${HDFS_DATANODE_DATA_DIR}
+      - hadoop3_tmp:${HADOOP_TMP_DIR}
+      - hadoop3_history_tmp:${MAPRED_HISTORY_TMP_DIR}
+      - hadoop3_history_done:${MAPRED_HISTORY_DONE_DIR}
     healthcheck:
-      # Secondary node is healthy when sshd + SNN + JHS + DataNode are alive.
-      # 当 sshd、SecondaryNameNode、HistoryServer、DataNode 都在时判定健康。
-      test: ["CMD-SHELL", "bash -lc 'pgrep -x sshd >/dev/null && jps | grep -q SecondaryNameNode && jps | grep -q JobHistoryServer && jps | grep -q DataNode'"]
+      # Secondary node is healthy when JobHistory web endpoint responds.
+      # 当 JobHistory Web 端点可用，且本地核心进程存活时判定健康。
+      test: ["CMD-SHELL", "bash -lc 'pgrep -x sshd >/dev/null && curl -fsS http://127.0.0.1:${JOBHISTORY_WEB_PORT}/ >/dev/null && jps | grep -q SecondaryNameNode && jps | grep -q DataNode'"]
       interval: ${HEALTHCHECK_INTERVAL}
       timeout: ${HEALTHCHECK_TIMEOUT}
       retries: ${HEALTHCHECK_RETRIES}
@@ -147,9 +158,35 @@ services:
     <<: *hadoop-common-security
     depends_on:
       hadoop1:
-        condition: service_healthy
+        condition: service_started
       hadoop2:
-        condition: service_healthy
+        condition: service_started
+
+volumes:
+  ssh_keys:
+    name: ${SSH_KEYS_VOLUME_NAME:-hadoop_ssh_keys}
+  hadoop1_name:
+    name: ${HADOOP1_NAME_VOLUME_NAME:-hadoop1_name}
+  hadoop1_data:
+    name: ${HADOOP1_DATA_VOLUME_NAME:-hadoop1_data}
+  hadoop1_tmp:
+    name: ${HADOOP1_TMP_VOLUME_NAME:-hadoop1_tmp}
+  hadoop2_data:
+    name: ${HADOOP2_DATA_VOLUME_NAME:-hadoop2_data}
+  hadoop2_yarn_local:
+    name: ${HADOOP2_YARN_LOCAL_VOLUME_NAME:-hadoop2_yarn_local}
+  hadoop2_yarn_logs:
+    name: ${HADOOP2_YARN_LOGS_VOLUME_NAME:-hadoop2_yarn_logs}
+  hadoop2_tmp:
+    name: ${HADOOP2_TMP_VOLUME_NAME:-hadoop2_tmp}
+  hadoop3_data:
+    name: ${HADOOP3_DATA_VOLUME_NAME:-hadoop3_data}
+  hadoop3_tmp:
+    name: ${HADOOP3_TMP_VOLUME_NAME:-hadoop3_tmp}
+  hadoop3_history_tmp:
+    name: ${HADOOP3_HISTORY_TMP_VOLUME_NAME:-hadoop3_history_tmp}
+  hadoop3_history_done:
+    name: ${HADOOP3_HISTORY_DONE_VOLUME_NAME:-hadoop3_history_done}
 
 networks:
   hadoop-net:
