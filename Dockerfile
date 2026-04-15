@@ -22,6 +22,7 @@
 # ======================================================================
 FROM eclipse-temurin:11-jdk-jammy AS hadoop-builder
 
+ARG TARGETARCH
 ARG HADOOP_VERSION=3.4.1
 ARG HADOOP_BASE_URL=https://repo.huaweicloud.com/apache/hadoop/common
 ARG HADOOP_FALLBACK_BASE_URLS="https://repo.huaweicloud.com/apache/hadoop/common https://dlcdn.apache.org/apache/hadoop/common https://archive.apache.org/dist/hadoop/common"
@@ -31,20 +32,48 @@ ARG HADOOP_DOWNLOAD_CONNECT_TIMEOUT=10
 ARG HADOOP_DOWNLOAD_MAX_TIME=0
 ARG HADOOP_DOWNLOAD_MIN_SPEED=1024
 ARG HADOOP_DOWNLOAD_MIN_SPEED_TIME=30
+ARG HADOOP_ARCHIVE_AMD64=""
+ARG HADOOP_ARCHIVE_ARM64=""
 ARG HADOOP_TARBALL_SHA512=""
+ARG HADOOP_TARBALL_SHA512_AMD64=""
+ARG HADOOP_TARBALL_SHA512_ARM64=""
 
 RUN apt-get update -o Acquire::Retries=3 && \
     apt-get install -y --no-install-recommends curl ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
-    if [ -z "${HADOOP_TARBALL_SHA512}" ]; then \
-        echo "ERROR: HADOOP_TARBALL_SHA512 is required"; \
+    TARGET_ARCH="${TARGETARCH:-$(dpkg --print-architecture 2>/dev/null || echo amd64)}" && \
+    HADOOP_ARCHIVE="hadoop-${HADOOP_VERSION}.tar.gz" && \
+    EXPECTED_SHA512="${HADOOP_TARBALL_SHA512}" && \
+    case "${TARGET_ARCH}" in \
+        amd64) \
+            if [ -n "${HADOOP_ARCHIVE_AMD64}" ]; then \
+                HADOOP_ARCHIVE="${HADOOP_ARCHIVE_AMD64}"; \
+            fi; \
+            if [ -n "${HADOOP_TARBALL_SHA512_AMD64}" ]; then \
+                EXPECTED_SHA512="${HADOOP_TARBALL_SHA512_AMD64}"; \
+            fi; \
+            ;; \
+        arm64) \
+            if [ -n "${HADOOP_ARCHIVE_ARM64}" ]; then \
+                HADOOP_ARCHIVE="${HADOOP_ARCHIVE_ARM64}"; \
+            fi; \
+            if [ -n "${HADOOP_TARBALL_SHA512_ARM64}" ]; then \
+                EXPECTED_SHA512="${HADOOP_TARBALL_SHA512_ARM64}"; \
+            fi; \
+            ;; \
+        *) \
+            echo "INFO: TARGETARCH=${TARGET_ARCH} has no dedicated Hadoop archive mapping, fallback to generic archive"; \
+            ;; \
+    esac && \
+    echo "[HADOOP-DOWNLOAD] TARGETARCH=${TARGET_ARCH}, archive=${HADOOP_ARCHIVE}" && \
+    if [ -z "${EXPECTED_SHA512}" ]; then \
+        echo "ERROR: checksum is required. Set HADOOP_TARBALL_SHA512 or arch-specific HADOOP_TARBALL_SHA512_AMD64/HADOOP_TARBALL_SHA512_ARM64"; \
         exit 1; \
     fi && \
     CURL_MAX_TIME_ARGS="" && \
     if [ "${HADOOP_DOWNLOAD_MAX_TIME}" -gt 0 ] 2>/dev/null; then \
         CURL_MAX_TIME_ARGS="--max-time ${HADOOP_DOWNLOAD_MAX_TIME}"; \
     fi && \
-    HADOOP_ARCHIVE="hadoop-${HADOOP_VERSION}.tar.gz" && \
     DOWNLOAD_OK="false" && \
     for BASE_URL in "${HADOOP_BASE_URL}" ${HADOOP_FALLBACK_BASE_URLS}; do \
         DOWNLOAD_URL="${BASE_URL}/hadoop-${HADOOP_VERSION}/${HADOOP_ARCHIVE}"; \
@@ -69,9 +98,9 @@ RUN apt-get update -o Acquire::Retries=3 && \
         exit 1; \
     fi && \
     ACTUAL_SHA512="$(sha512sum /tmp/hadoop.tar.gz | awk '{print $1}')" && \
-    if [ "${ACTUAL_SHA512}" != "${HADOOP_TARBALL_SHA512}" ]; then \
+    if [ "${ACTUAL_SHA512}" != "${EXPECTED_SHA512}" ]; then \
         echo "ERROR: checksum verification failed for ${HADOOP_ARCHIVE}"; \
-        echo "ERROR: expected=${HADOOP_TARBALL_SHA512}"; \
+        echo "ERROR: expected=${EXPECTED_SHA512}"; \
         echo "ERROR: actual=${ACTUAL_SHA512}"; \
         exit 1; \
     fi && \
@@ -112,6 +141,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # `curl` is a required runtime dependency for HTTP healthcheck probes used by
 # the container entrypoint/compose healthcheck logic, so do not remove it.
 RUN apt-get update -o Acquire::Retries=3 && \
+    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends openssh-server bash procps ca-certificates gettext-base curl && \
     rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub && \
     rm -rf /var/lib/apt/lists/* && \

@@ -180,7 +180,9 @@ Start from `.env.example`, then adjust local values. `.env` is no longer tracked
 
 - Hadoop version and image tag
 - Hadoop download mirrors and timeout/retry controls (`HADOOP_BASE_URL`, `HADOOP_FALLBACK_BASE_URLS`, `HADOOP_DOWNLOAD_*`)
-- Hadoop tarball checksum (`HADOOP_TARBALL_SHA512`, required for build)
+- Hadoop tarball checksum (`HADOOP_TARBALL_SHA512` can be used for local builds; per-arch values are recommended for CI publish)
+- Per-architecture checksums (`HADOOP_TARBALL_SHA512_AMD64`, `HADOOP_TARBALL_SHA512_ARM64`)
+- Optional per-architecture archive names (`HADOOP_ARCHIVE_AMD64`, `HADOOP_ARCHIVE_ARM64`, default fallback is `hadoop-${HADOOP_VERSION}.tar.gz`)
 - bind address for published ports (`HOST_BIND_IP`)
 - Service RPC/Web ports
 - HDFS replication factor
@@ -200,7 +202,11 @@ The repository includes `.github/workflows/publish-ghcr.yml`.
 
 Recommended before publishing:
 
-- In GitHub Settings -> Secrets and variables -> Actions -> Variables, set `HADOOP_TARBALL_SHA512` to the official SHA512 checksum of `hadoop-3.4.1.tar.gz` (required).
+- In GitHub Settings -> Secrets and variables -> Actions, set (Secrets are recommended):
+  - `HADOOP_TARBALL_SHA512_AMD64` (required for Linux AMD64)
+  - `HADOOP_TARBALL_SHA512_ARM64` (required for Linux ARM64)
+  - `HADOOP_ARCHIVE_AMD64` (optional if AMD64 archive name differs from default `hadoop-${HADOOP_VERSION}.tar.gz`)
+  - `HADOOP_ARCHIVE_ARM64` (optional if ARM64 archive name differs from default `hadoop-${HADOOP_VERSION}.tar.gz`)
 - Push a version tag to trigger publishing:
 
 ```bash
@@ -214,7 +220,16 @@ The workflow will automatically:
 - build and push to GHCR
 - emit SBOM and provenance attestations
 - sign image digest with keyless Cosign (OIDC)
-- fail fast when `HADOOP_TARBALL_SHA512` is missing
+- fail fast when `HADOOP_TARBALL_SHA512_AMD64` or `HADOOP_TARBALL_SHA512_ARM64` is missing
+
+### Trivy Ignore List for Lab Environments
+
+- The workflow reads `.trivyignore` from the repository root as the vulnerability exception list.
+- This repository now includes an auditable baseline file: `TRIVY_AUDIT_BASELINE.md` with scan commands, evidence and risk context.
+- Recommended maintenance flow:
+  1. Regenerate `trivy-local-scan.json` from a fresh local scan.
+  2. Add only reviewed and accepted-risk CVE/GHSA IDs to `.trivyignore`.
+  3. Record rationale and follow-up upgrade plans in `TRIVY_AUDIT_BASELINE.md`.
 
 After the first publish, switch package visibility to Public in GitHub Packages if needed.
 
