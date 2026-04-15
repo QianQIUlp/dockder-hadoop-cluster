@@ -61,7 +61,14 @@ services:
       context: .
       args:
         HADOOP_VERSION: ${HADOOP_VERSION}
-        HADOOP_BASE_URL: ${HADOOP_BASE_URL:-https://dlcdn.apache.org/apache/hadoop/common}
+        HADOOP_BASE_URL: ${HADOOP_BASE_URL:-https://repo.huaweicloud.com/apache/hadoop/common}
+        HADOOP_FALLBACK_BASE_URLS: ${HADOOP_FALLBACK_BASE_URLS:-https://repo.huaweicloud.com/apache/hadoop/common https://dlcdn.apache.org/apache/hadoop/common https://archive.apache.org/dist/hadoop/common}
+        HADOOP_DOWNLOAD_RETRY: ${HADOOP_DOWNLOAD_RETRY:-2}
+        HADOOP_DOWNLOAD_RETRY_DELAY: ${HADOOP_DOWNLOAD_RETRY_DELAY:-2}
+        HADOOP_DOWNLOAD_CONNECT_TIMEOUT: ${HADOOP_DOWNLOAD_CONNECT_TIMEOUT:-10}
+        HADOOP_DOWNLOAD_MAX_TIME: ${HADOOP_DOWNLOAD_MAX_TIME:-0}
+        HADOOP_DOWNLOAD_MIN_SPEED: ${HADOOP_DOWNLOAD_MIN_SPEED:-1024}
+        HADOOP_DOWNLOAD_MIN_SPEED_TIME: ${HADOOP_DOWNLOAD_MIN_SPEED_TIME:-30}
         HADOOP_TARBALL_SHA512: ${HADOOP_TARBALL_SHA512}
     image: ${IMAGE_NAME}:${IMAGE_TAG}
     container_name: hadoop1
@@ -84,7 +91,7 @@ services:
     healthcheck:
       # NameNode is healthy when web endpoint responds and safemode is OFF.
       # 当 NameNode Web 端点可用且已退出安全模式时判定健康。
-      test: ["CMD-SHELL", "sh -ec 'pgrep -x sshd >/dev/null && curl -fsS http://127.0.0.1:${NAMENODE_HTTP_PORT}/ >/dev/null && safemode=\"$(hdfs dfsadmin -safemode get 2>/dev/null)\" && case \"$safemode\" in *\"Safe mode is OFF\"*) exit 0 ;; *) exit 1 ;; esac'"]
+      test: ["CMD-SHELL", "sh -ec 'pgrep -x sshd >/dev/null && curl -fsS http://127.0.0.1:${NAMENODE_HTTP_PORT}/ >/dev/null && safemode=\"$$(hdfs dfsadmin -safemode get 2>/dev/null)\" && case \"$$safemode\" in *\"Safe mode is OFF\"*) exit 0 ;; *) exit 1 ;; esac'"]
       interval: ${HEALTHCHECK_INTERVAL}
       timeout: ${HEALTHCHECK_TIMEOUT}
       retries: ${HEALTHCHECK_RETRIES}

@@ -24,23 +24,33 @@ FROM eclipse-temurin:11-jdk-jammy AS hadoop-builder
 
 ARG HADOOP_VERSION=3.4.1
 ARG HADOOP_BASE_URL=https://repo.huaweicloud.com/apache/hadoop/common
-ARG HADOOP_FALLBACK_BASE_URLS="https://dlcdn.apache.org/hadoop/common https://archive.apache.org/dist/hadoop/common"
+ARG HADOOP_FALLBACK_BASE_URLS="https://repo.huaweicloud.com/apache/hadoop/common https://dlcdn.apache.org/apache/hadoop/common https://archive.apache.org/dist/hadoop/common"
 ARG HADOOP_DOWNLOAD_RETRY=2
 ARG HADOOP_DOWNLOAD_RETRY_DELAY=2
 ARG HADOOP_DOWNLOAD_CONNECT_TIMEOUT=10
-ARG HADOOP_DOWNLOAD_MAX_TIME=180
+ARG HADOOP_DOWNLOAD_MAX_TIME=0
+ARG HADOOP_DOWNLOAD_MIN_SPEED=1024
+ARG HADOOP_DOWNLOAD_MIN_SPEED_TIME=30
 ARG HADOOP_TARBALL_SHA512=""
 
 RUN apt-get update -o Acquire::Retries=3 && \
     apt-get install -y --no-install-recommends curl ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
+    if [ -z "${HADOOP_TARBALL_SHA512}" ]; then \
+        echo "ERROR: HADOOP_TARBALL_SHA512 is required"; \
+        exit 1; \
+    fi && \
+    CURL_MAX_TIME_ARGS="" && \
+    if [ "${HADOOP_DOWNLOAD_MAX_TIME}" -gt 0 ] 2>/dev/null; then \
+        CURL_MAX_TIME_ARGS="--max-time ${HADOOP_DOWNLOAD_MAX_TIME}"; \
+    fi && \
     HADOOP_ARCHIVE="hadoop-${HADOOP_VERSION}.tar.gz" && \
     DOWNLOAD_OK="false" && \
     for BASE_URL in "${HADOOP_BASE_URL}" ${HADOOP_FALLBACK_BASE_URLS}; do \
         DOWNLOAD_URL="${BASE_URL}/hadoop-${HADOOP_VERSION}/${HADOOP_ARCHIVE}"; \
         START_TS="$(date +%s)"; \
         echo "[HADOOP-DOWNLOAD] Trying source: ${DOWNLOAD_URL}"; \
-        if curl --retry "${HADOOP_DOWNLOAD_RETRY}" --retry-delay "${HADOOP_DOWNLOAD_RETRY_DELAY}" --retry-all-errors --connect-timeout "${HADOOP_DOWNLOAD_CONNECT_TIMEOUT}" --max-time "${HADOOP_DOWNLOAD_MAX_TIME}" -fL --show-error --progress-bar "${DOWNLOAD_URL}" -o /tmp/hadoop.tar.gz; then \
+        if curl --retry "${HADOOP_DOWNLOAD_RETRY}" --retry-delay "${HADOOP_DOWNLOAD_RETRY_DELAY}" --retry-all-errors --connect-timeout "${HADOOP_DOWNLOAD_CONNECT_TIMEOUT}" ${CURL_MAX_TIME_ARGS} --speed-limit "${HADOOP_DOWNLOAD_MIN_SPEED}" --speed-time "${HADOOP_DOWNLOAD_MIN_SPEED_TIME}" -fL --show-error --progress-bar "${DOWNLOAD_URL}" -o /tmp/hadoop.tar.gz; then \
             END_TS="$(date +%s)"; \
             echo "[HADOOP-DOWNLOAD] Success from ${BASE_URL} in $((END_TS - START_TS))s"; \
             DOWNLOAD_OK="true"; \
@@ -56,10 +66,6 @@ RUN apt-get update -o Acquire::Retries=3 && \
     fi && \
     if [ ! -s /tmp/hadoop.tar.gz ]; then \
         echo "ERROR: downloaded ${HADOOP_ARCHIVE} is empty"; \
-        exit 1; \
-    fi && \
-    if [ -z "${HADOOP_TARBALL_SHA512}" ]; then \
-        echo "ERROR: HADOOP_TARBALL_SHA512 is required"; \
         exit 1; \
     fi && \
     ACTUAL_SHA512="$(sha512sum /tmp/hadoop.tar.gz | awk '{print $1}')" && \
@@ -86,7 +92,7 @@ RUN apt-get update -o Acquire::Retries=3 && \
 # - Keep only Hadoop + sshd + minimal runtime tools.
 # - 仅保留 Hadoop、sshd 与最小运行工具。
 # ======================================================================
-FROM eclipse-temurin:11-jdk-jammy
+FROM eclipse-temurin:11-jre-jammy
 
 ARG HADOOP_VERSION=3.4.1
 ARG IMAGE_SOURCE=https://github.com/QianQIUlp/dockder-hadoop-cluster

@@ -14,7 +14,7 @@ Key features:
 4. Docker named volumes are used by default, and a shared SSH key volume enables inter-node trust.
 5. `.gitignore` filters runtime artifacts and temporary binaries.
 6. A GHCR publishing workflow is included with vulnerability scanning, image signing, and SBOM/provenance.
-7. The runtime baseline is upgraded to Temurin JDK 11, aligned with Hadoop 3.4.x recommendations.
+7. The runtime baseline is upgraded to Temurin JRE 11, aligned with Hadoop 3.4.x recommendations.
 
 > Note: To keep the image lean, common troubleshooting tools are not preinstalled by default.
 
@@ -118,7 +118,8 @@ If you want to apply extra resource hardening:
 The Dockerfile now includes these default optimizations:
 
 - Prefer a faster mirror (`repo.huaweicloud.com`) first, then fall back to Apache mirrors.
-- Reduce retry/timeout (`retry=2`, `max-time=180`) to avoid long "stuck but eventually succeeds" waits.
+- Use no hard total download timeout by default (`HADOOP_DOWNLOAD_MAX_TIME=0`) so slow links do not fail mid-transfer.
+- Fail and retry only when speed stays too low (default `< 1KB/s` for `30s`) to avoid infinite hangs.
 - Print per-mirror download start/success/failure with elapsed time.
 
 To get full step-by-step build output, use:
@@ -135,7 +136,7 @@ You can also tune behavior per environment:
 docker build --progress=plain \
   --build-arg HADOOP_BASE_URL=https://dlcdn.apache.org/apache/hadoop/common \
   --build-arg HADOOP_DOWNLOAD_RETRY=1 \
-  --build-arg HADOOP_DOWNLOAD_MAX_TIME=120 \
+  --build-arg HADOOP_DOWNLOAD_MAX_TIME=1200 \
   --build-arg HADOOP_TARBALL_SHA512=<official-sha512> \
   -t dockder-hadoop-cluster:dev .
 ```
@@ -178,6 +179,7 @@ You can centrally control in `.env`:
 Start from `.env.example`, then adjust local values. `.env` is no longer tracked by git.
 
 - Hadoop version and image tag
+- Hadoop download mirrors and timeout/retry controls (`HADOOP_BASE_URL`, `HADOOP_FALLBACK_BASE_URLS`, `HADOOP_DOWNLOAD_*`)
 - Hadoop tarball checksum (`HADOOP_TARBALL_SHA512`, required for build)
 - bind address for published ports (`HOST_BIND_IP`)
 - Service RPC/Web ports
