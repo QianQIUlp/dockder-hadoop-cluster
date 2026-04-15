@@ -24,7 +24,7 @@ FROM eclipse-temurin:11-jdk-jammy AS hadoop-builder
 
 ARG HADOOP_VERSION=3.4.1
 ARG HADOOP_BASE_URL=https://repo.huaweicloud.com/apache/hadoop/common
-ARG HADOOP_FALLBACK_BASE_URLS="https://dlcdn.apache.org/apache/hadoop/common https://archive.apache.org/dist/hadoop/common"
+ARG HADOOP_FALLBACK_BASE_URLS="https://dlcdn.apache.org/hadoop/common https://archive.apache.org/dist/hadoop/common"
 ARG HADOOP_DOWNLOAD_RETRY=2
 ARG HADOOP_DOWNLOAD_RETRY_DELAY=2
 ARG HADOOP_DOWNLOAD_CONNECT_TIMEOUT=10
