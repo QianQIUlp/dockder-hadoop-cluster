@@ -313,6 +313,94 @@ docker compose up -d
 
 ---
 
+## 📘 手把手：进入容器、格式化 NameNode、启动 HDFS/YARN
+
+> 先说明：本项目默认在容器启动时自动拉起各角色 Daemon（NameNode/DataNode/RM/NM 等）。
+> 下面这组命令主要用于教学演示、手动重启或你临时停过服务后的恢复。
+
+### 1. 进入 Hadoop 容器
+
+```bash
+# 进入 NameNode 所在节点（hadoop1）
+docker exec -it hadoop1 bash
+
+# 可选：确认 Hadoop 命令可用
+hdfs version
+```
+
+### 2. 手动格式化 NameNode（谨慎）
+
+> 格式化会重置 HDFS 元数据。教学场景建议在“全新环境”下执行，或先 `docker compose down -v` 清空数据卷。
+
+在 `hadoop1` 容器里执行：
+
+```bash
+# 如 NameNode 正在运行，先停掉
+hdfs --daemon stop namenode
+
+# 执行格式化
+hdfs namenode -format -nonInteractive
+
+# 重新启动 NameNode
+hdfs --daemon start namenode
+```
+
+### 3. 集群启动 HDFS
+
+推荐在 `hadoop1`（NameNode 节点）执行：
+
+```bash
+start-dfs.sh
+```
+
+常用检查：
+
+```bash
+jps
+hdfs dfsadmin -report
+```
+
+### 4. 集群启动 YARN
+
+推荐在 `hadoop2`（ResourceManager 节点）执行：
+
+```bash
+# 先退出 hadoop1，再进入 hadoop2
+exit
+docker exec -it hadoop2 bash
+
+start-yarn.sh
+```
+
+常用检查：
+
+```bash
+jps
+yarn node -list
+```
+
+### 5. 一组最常用“启动后验证”命令
+
+在宿主机执行：
+
+```bash
+# 进程视角
+docker exec -it hadoop1 jps
+docker exec -it hadoop2 jps
+docker exec -it hadoop3 jps
+
+# Web UI
+# NameNode: http://localhost:9870
+# ResourceManager: http://localhost:8088
+```
+
+### 6. 对应停止命令（便于记忆）
+
+- 在 `hadoop2` 里停 YARN：`stop-yarn.sh`
+- 在 `hadoop1` 里停 HDFS：`stop-dfs.sh`
+
+---
+
 ## 🛠️ 常用运维命令
 
 ```bash

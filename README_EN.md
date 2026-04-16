@@ -311,6 +311,94 @@ This greatly reduces cross-node SSH failures caused by incomplete runtime enviro
 
 ---
 
+## 📘 Step-by-Step: Enter Container, Format NameNode, Start HDFS/YARN
+
+> Note first: this project starts role daemons automatically when containers boot (NameNode/DataNode/RM/NM, etc.).
+> The commands below are mainly for learning, manual restart, or recovery after you stopped services yourself.
+
+### 1. Enter a Hadoop container
+
+```bash
+# Enter NameNode node (hadoop1)
+docker exec -it hadoop1 bash
+
+# Optional: verify Hadoop CLI is available
+hdfs version
+```
+
+### 2. Format NameNode manually (be careful)
+
+> Formatting resets HDFS metadata. In lab scenarios, run this on a fresh environment, or clear volumes first with `docker compose down -v`.
+
+Run inside `hadoop1`:
+
+```bash
+# If NameNode is already running, stop it first
+hdfs --daemon stop namenode
+
+# Format NameNode metadata
+hdfs namenode -format -nonInteractive
+
+# Start NameNode again
+hdfs --daemon start namenode
+```
+
+### 3. Start HDFS cluster
+
+Recommended on `hadoop1` (NameNode node):
+
+```bash
+start-dfs.sh
+```
+
+Quick checks:
+
+```bash
+jps
+hdfs dfsadmin -report
+```
+
+### 4. Start YARN cluster
+
+Recommended on `hadoop2` (ResourceManager node):
+
+```bash
+# Leave hadoop1 shell, then enter hadoop2
+exit
+docker exec -it hadoop2 bash
+
+start-yarn.sh
+```
+
+Quick checks:
+
+```bash
+jps
+yarn node -list
+```
+
+### 5. Most-used post-start verification commands
+
+Run on host:
+
+```bash
+# Process-level view
+docker exec -it hadoop1 jps
+docker exec -it hadoop2 jps
+docker exec -it hadoop3 jps
+
+# Web UIs
+# NameNode: http://localhost:9870
+# ResourceManager: http://localhost:8088
+```
+
+### 6. Matching stop commands (easy to remember)
+
+- Stop YARN in `hadoop2`: `stop-yarn.sh`
+- Stop HDFS in `hadoop1`: `stop-dfs.sh`
+
+---
+
 ## 🛠️ Useful Operations
 
 ```bash
