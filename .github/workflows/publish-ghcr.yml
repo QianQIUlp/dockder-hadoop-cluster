@@ -82,7 +82,7 @@ jobs:
 
       - name: Show effective Hadoop source
         env:
-          HADOOP_BASE_URL: ${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://dlcdn.apache.org/hadoop/common' }}
+          HADOOP_BASE_URL: ${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://downloads.apache.org/hadoop/common' }}
           HADOOP_TARBALL_SHA512: ${{ vars.HADOOP_TARBALL_SHA512 }}
           HADOOP_TARBALL_SHA512_AMD64: ${{ secrets.HADOOP_TARBALL_SHA512_AMD64 }}
           HADOOP_TARBALL_SHA512_ARM64: ${{ secrets.HADOOP_TARBALL_SHA512_ARM64 }}
@@ -137,7 +137,7 @@ jobs:
           load: true
           tags: local/hadoop-cluster:scan
           build-args: |
-            HADOOP_BASE_URL=${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://dlcdn.apache.org/hadoop/common' }}
+            HADOOP_BASE_URL=${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://downloads.apache.org/hadoop/common' }}
             HADOOP_TARBALL_SHA512=${{ vars.HADOOP_TARBALL_SHA512 }}
             HADOOP_TARBALL_SHA512_AMD64=${{ secrets.HADOOP_TARBALL_SHA512_AMD64 }}
             HADOOP_TARBALL_SHA512_ARM64=${{ secrets.HADOOP_TARBALL_SHA512_ARM64 }}
@@ -150,7 +150,7 @@ jobs:
       - name: Explain build failure with actionable hints
         if: steps.build_local.outcome == 'failure'
         env:
-          HADOOP_BASE_URL: ${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://dlcdn.apache.org/hadoop/common' }}
+          HADOOP_BASE_URL: ${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://downloads.apache.org/hadoop/common' }}
           HADOOP_TARBALL_SHA512: ${{ vars.HADOOP_TARBALL_SHA512 }}
           HADOOP_TARBALL_SHA512_AMD64: ${{ secrets.HADOOP_TARBALL_SHA512_AMD64 }}
           HADOOP_TARBALL_SHA512_ARM64: ${{ secrets.HADOOP_TARBALL_SHA512_ARM64 }}
@@ -178,7 +178,7 @@ jobs:
             echo "- Local image build failed in Hadoop download/verification stage."
             echo "- Required checksum input: HADOOP_TARBALL_SHA512 variable or both HADOOP_TARBALL_SHA512_AMD64/HADOOP_TARBALL_SHA512_ARM64 secrets (128-char SHA512 hex)."
             echo "- Optional variables: HADOOP_ARCHIVE_AMD64 and HADOOP_ARCHIVE_ARM64 for architecture-specific tarball names."
-            echo "- Optional variable: HADOOP_BASE_URL (default: https://dlcdn.apache.org/hadoop/common)."
+            echo "- Optional variable: HADOOP_BASE_URL (default: https://downloads.apache.org/hadoop/common)."
             echo "- Optional variable: AWS_SDK_BUNDLE_VERSION (default: 2.41.30)."
             echo "- This workflow will still upload SARIF placeholder to preserve diagnostics artifacts."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -254,7 +254,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            HADOOP_BASE_URL=${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://dlcdn.apache.org/hadoop/common' }}
+            HADOOP_BASE_URL=${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://downloads.apache.org/hadoop/common' }}
             HADOOP_TARBALL_SHA512=${{ vars.HADOOP_TARBALL_SHA512 }}
             HADOOP_TARBALL_SHA512_AMD64=${{ secrets.HADOOP_TARBALL_SHA512_AMD64 }}
             HADOOP_TARBALL_SHA512_ARM64=${{ secrets.HADOOP_TARBALL_SHA512_ARM64 }}

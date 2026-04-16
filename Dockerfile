@@ -24,8 +24,8 @@ FROM eclipse-temurin:11-jdk-jammy AS hadoop-builder
 
 ARG TARGETARCH
 ARG HADOOP_VERSION=3.4.1
-ARG HADOOP_BASE_URL=https://repo.huaweicloud.com/apache/hadoop/common
-ARG HADOOP_FALLBACK_BASE_URLS="https://repo.huaweicloud.com/apache/hadoop/common https://dlcdn.apache.org/hadoop/common https://archive.apache.org/dist/hadoop/common"
+ARG HADOOP_BASE_URL=https://downloads.apache.org/hadoop/common
+ARG HADOOP_FALLBACK_BASE_URLS="https://archive.apache.org/dist/hadoop/common"
 ARG HADOOP_DOWNLOAD_RETRY=2
 ARG HADOOP_DOWNLOAD_RETRY_DELAY=2
 ARG HADOOP_DOWNLOAD_CONNECT_TIMEOUT=10
@@ -149,7 +149,6 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # `curl` is a required runtime dependency for HTTP healthcheck probes used by
 # the container entrypoint/compose healthcheck logic, so do not remove it.
 RUN apt-get update -o Acquire::Retries=3 && \
-    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends openssh-server bash procps ca-certificates gettext-base curl vim net-tools iputils-ping && \
     rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub && \
     rm -rf /var/lib/apt/lists/* && \
