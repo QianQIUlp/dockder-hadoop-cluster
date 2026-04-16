@@ -22,7 +22,7 @@ jobs:
       - name: Prepare image name
         id: prep
         run: |
-          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/hadoop-cluster-3.4.1" >> "$GITHUB_OUTPUT"
 
       - name: Validate checksum inputs
         env:
