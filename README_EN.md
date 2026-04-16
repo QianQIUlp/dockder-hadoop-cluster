@@ -16,7 +16,7 @@ Key features:
 6. A GHCR publishing workflow is included with vulnerability scanning, image signing, and SBOM/provenance.
 7. The runtime baseline is upgraded to Temurin JRE 11, aligned with Hadoop 3.4.x recommendations.
 
-> Note: To keep the image lean, common troubleshooting tools are not preinstalled by default.
+> Note: Common troubleshooting tools are preinstalled (for example: vim, net-tools, ping) for easier labs and debugging.
 
 ---
 

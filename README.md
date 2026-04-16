@@ -18,7 +18,7 @@
 6. 提供 GHCR 发布工作流，默认包含漏洞扫描、镜像签名与 SBOM/Provenance。
 7. 基础运行时升级到 Temurin JRE 11，更匹配 Hadoop 3.4.x 官方推荐。
 
-> 说明：为控制镜像体积，默认不预装常见排障工具（如 vim、net-tools、ping）。
+> 说明：镜像已预装常见排障工具（如 vim、net-tools、ping），便于教学与调试。
 
 ---
 

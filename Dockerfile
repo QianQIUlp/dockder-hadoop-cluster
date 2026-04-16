@@ -150,7 +150,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # the container entrypoint/compose healthcheck logic, so do not remove it.
 RUN apt-get update -o Acquire::Retries=3 && \
     apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends openssh-server bash procps ca-certificates gettext-base curl && \
+    apt-get install -y --no-install-recommends openssh-server bash procps ca-certificates gettext-base curl vim net-tools iputils-ping && \
     rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub && \
     rm -rf /var/lib/apt/lists/* && \
     groupadd --gid 10001 hadoop && \
