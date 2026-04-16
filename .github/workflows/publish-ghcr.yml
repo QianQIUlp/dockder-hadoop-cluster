@@ -42,17 +42,32 @@ jobs:
             exit 1
           fi
 
+      - name: Resolve AWS SDK bundle version
+        id: resolve_aws_sdk_bundle
+        env:
+          REPOSITORY_VARS_JSON: ${{ toJSON(vars) }}
+        run: |
+          AWS_SDK_BUNDLE_VERSION_FROM_VAR="$(printf '%s' "${REPOSITORY_VARS_JSON}" | jq -r '.AWS_SDK_BUNDLE_VERSION // empty')"
+          AWS_SDK_BUNDLE_VERSION="${AWS_SDK_BUNDLE_VERSION_FROM_VAR:-2.41.30}"
+          if [[ ! "${AWS_SDK_BUNDLE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::AWS_SDK_BUNDLE_VERSION must be a semantic version like 2.41.30"
+            exit 1
+          fi
+          echo "aws_sdk_bundle_version=${AWS_SDK_BUNDLE_VERSION}" >> "$GITHUB_OUTPUT"
+
       - name: Show effective Hadoop source
         env:
-          HADOOP_BASE_URL: ${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://dlcdn.apache.org/apache/hadoop/common' }}
+          HADOOP_BASE_URL: ${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://dlcdn.apache.org/hadoop/common' }}
           HADOOP_TARBALL_SHA512_AMD64: ${{ secrets.HADOOP_TARBALL_SHA512_AMD64 }}
           HADOOP_TARBALL_SHA512_ARM64: ${{ secrets.HADOOP_TARBALL_SHA512_ARM64 }}
           HADOOP_ARCHIVE_AMD64: ${{ secrets.HADOOP_ARCHIVE_AMD64 }}
           HADOOP_ARCHIVE_ARM64: ${{ secrets.HADOOP_ARCHIVE_ARM64 }}
+          AWS_SDK_BUNDLE_VERSION: ${{ steps.resolve_aws_sdk_bundle.outputs.aws_sdk_bundle_version }}
         run: |
           echo "HADOOP_BASE_URL=${HADOOP_BASE_URL}"
           echo "HADOOP_TARBALL_SHA512_AMD64(prefix)=${HADOOP_TARBALL_SHA512_AMD64:0:16}..."
           echo "HADOOP_TARBALL_SHA512_ARM64(prefix)=${HADOOP_TARBALL_SHA512_ARM64:0:16}..."
+          echo "AWS_SDK_BUNDLE_VERSION=${AWS_SDK_BUNDLE_VERSION}"
           if [[ -n "${HADOOP_ARCHIVE_AMD64}" ]]; then
             echo "HADOOP_ARCHIVE_AMD64=${HADOOP_ARCHIVE_AMD64}"
           fi
@@ -93,29 +108,32 @@ jobs:
           load: true
           tags: local/hadoop-cluster:scan
           build-args: |
-            HADOOP_BASE_URL=${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://dlcdn.apache.org/apache/hadoop/common' }}
+            HADOOP_BASE_URL=${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://dlcdn.apache.org/hadoop/common' }}
             HADOOP_TARBALL_SHA512=
             HADOOP_TARBALL_SHA512_AMD64=${{ secrets.HADOOP_TARBALL_SHA512_AMD64 }}
             HADOOP_TARBALL_SHA512_ARM64=${{ secrets.HADOOP_TARBALL_SHA512_ARM64 }}
             HADOOP_ARCHIVE_AMD64=${{ secrets.HADOOP_ARCHIVE_AMD64 }}
             HADOOP_ARCHIVE_ARM64=${{ secrets.HADOOP_ARCHIVE_ARM64 }}
+            AWS_SDK_BUNDLE_VERSION=${{ steps.resolve_aws_sdk_bundle.outputs.aws_sdk_bundle_version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Explain build failure with actionable hints
         if: steps.build_local.outcome == 'failure'
         env:
-          HADOOP_BASE_URL: ${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://dlcdn.apache.org/apache/hadoop/common' }}
+          HADOOP_BASE_URL: ${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://dlcdn.apache.org/hadoop/common' }}
           HADOOP_TARBALL_SHA512_AMD64: ${{ secrets.HADOOP_TARBALL_SHA512_AMD64 }}
           HADOOP_TARBALL_SHA512_ARM64: ${{ secrets.HADOOP_TARBALL_SHA512_ARM64 }}
           HADOOP_ARCHIVE_AMD64: ${{ secrets.HADOOP_ARCHIVE_AMD64 }}
           HADOOP_ARCHIVE_ARM64: ${{ secrets.HADOOP_ARCHIVE_ARM64 }}
+          AWS_SDK_BUNDLE_VERSION: ${{ steps.resolve_aws_sdk_bundle.outputs.aws_sdk_bundle_version }}
         run: |
           echo "::error::Docker builder stage failed while downloading/verifying Hadoop tarball."
           echo "::error::Check repository secrets: HADOOP_TARBALL_SHA512_AMD64 and HADOOP_TARBALL_SHA512_ARM64 (required), optional HADOOP_ARCHIVE_AMD64/HADOOP_ARCHIVE_ARM64, and optional HADOOP_BASE_URL variable."
           echo "::notice::Recommended HADOOP_BASE_URL=${HADOOP_BASE_URL}"
           echo "::notice::Current HADOOP_TARBALL_SHA512_AMD64(prefix)=${HADOOP_TARBALL_SHA512_AMD64:0:16}..."
           echo "::notice::Current HADOOP_TARBALL_SHA512_ARM64(prefix)=${HADOOP_TARBALL_SHA512_ARM64:0:16}..."
+          echo "::notice::Current AWS_SDK_BUNDLE_VERSION=${AWS_SDK_BUNDLE_VERSION}"
           if [[ -n "${HADOOP_ARCHIVE_AMD64}" ]]; then
             echo "::notice::Current HADOOP_ARCHIVE_AMD64=${HADOOP_ARCHIVE_AMD64}"
           fi
@@ -127,7 +145,8 @@ jobs:
             echo "- Local image build failed in Hadoop download/verification stage."
             echo "- Required variables: HADOOP_TARBALL_SHA512_AMD64 and HADOOP_TARBALL_SHA512_ARM64 (both 128-char SHA512 hex)."
             echo "- Optional variables: HADOOP_ARCHIVE_AMD64 and HADOOP_ARCHIVE_ARM64 for architecture-specific tarball names."
-            echo "- Optional variable: HADOOP_BASE_URL (default: https://dlcdn.apache.org/apache/hadoop/common)."
+            echo "- Optional variable: HADOOP_BASE_URL (default: https://dlcdn.apache.org/hadoop/common)."
+            echo "- Optional variable: AWS_SDK_BUNDLE_VERSION (default: 2.41.30)."
             echo "- This workflow will still upload SARIF placeholder to preserve diagnostics artifacts."
           } >> "$GITHUB_STEP_SUMMARY"
           exit 1
@@ -202,12 +221,13 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            HADOOP_BASE_URL=${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://dlcdn.apache.org/apache/hadoop/common' }}
+            HADOOP_BASE_URL=${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://dlcdn.apache.org/hadoop/common' }}
             HADOOP_TARBALL_SHA512=
             HADOOP_TARBALL_SHA512_AMD64=${{ secrets.HADOOP_TARBALL_SHA512_AMD64 }}
             HADOOP_TARBALL_SHA512_ARM64=${{ secrets.HADOOP_TARBALL_SHA512_ARM64 }}
             HADOOP_ARCHIVE_AMD64=${{ secrets.HADOOP_ARCHIVE_AMD64 }}
             HADOOP_ARCHIVE_ARM64=${{ secrets.HADOOP_ARCHIVE_ARM64 }}
+            AWS_SDK_BUNDLE_VERSION=${{ steps.resolve_aws_sdk_bundle.outputs.aws_sdk_bundle_version }}
           provenance: mode=max
           sbom: true
           cache-from: type=gha

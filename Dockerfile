@@ -25,7 +25,7 @@ FROM eclipse-temurin:11-jdk-jammy AS hadoop-builder
 ARG TARGETARCH
 ARG HADOOP_VERSION=3.4.1
 ARG HADOOP_BASE_URL=https://repo.huaweicloud.com/apache/hadoop/common
-ARG HADOOP_FALLBACK_BASE_URLS="https://repo.huaweicloud.com/apache/hadoop/common https://dlcdn.apache.org/apache/hadoop/common https://archive.apache.org/dist/hadoop/common"
+ARG HADOOP_FALLBACK_BASE_URLS="https://repo.huaweicloud.com/apache/hadoop/common https://dlcdn.apache.org/hadoop/common https://archive.apache.org/dist/hadoop/common"
 ARG HADOOP_DOWNLOAD_RETRY=2
 ARG HADOOP_DOWNLOAD_RETRY_DELAY=2
 ARG HADOOP_DOWNLOAD_CONNECT_TIMEOUT=10
@@ -37,6 +37,7 @@ ARG HADOOP_ARCHIVE_ARM64=""
 ARG HADOOP_TARBALL_SHA512=""
 ARG HADOOP_TARBALL_SHA512_AMD64=""
 ARG HADOOP_TARBALL_SHA512_ARM64=""
+ARG AWS_SDK_BUNDLE_VERSION=2.41.30
 
 RUN apt-get update -o Acquire::Retries=3 && \
     apt-get install -y --no-install-recommends curl ca-certificates && \
@@ -111,6 +112,13 @@ RUN apt-get update -o Acquire::Retries=3 && \
     tar -xzf /tmp/hadoop.tar.gz -C /opt && \
     mv /opt/hadoop-${HADOOP_VERSION} /opt/hadoop && \
     rm -f /tmp/hadoop.tar.gz && \
+        HADOOP_TOOLS_LIB="/opt/hadoop/share/hadoop/tools/lib" && \
+        if ls "${HADOOP_TOOLS_LIB}"/bundle-*.jar >/dev/null 2>&1; then \
+                rm -f "${HADOOP_TOOLS_LIB}"/bundle-*.jar && \
+                curl --retry 4 --retry-delay 3 --retry-all-errors --connect-timeout 20 --max-time 300 -fsSL \
+                    "https://repo1.maven.org/maven2/software/amazon/awssdk/bundle/${AWS_SDK_BUNDLE_VERSION}/bundle-${AWS_SDK_BUNDLE_VERSION}.jar" \
+                    -o "${HADOOP_TOOLS_LIB}/bundle-${AWS_SDK_BUNDLE_VERSION}.jar"; \
+        fi && \
     rm -rf /opt/hadoop/share/doc && \
     find /opt/hadoop/share/hadoop -type d \( -name sources -o -name jdiff \) -prune -exec rm -rf {} + && \
     rm -rf /opt/hadoop/share/hadoop/mapreduce/lib-examples

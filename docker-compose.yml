@@ -62,7 +62,7 @@ services:
       args:
         HADOOP_VERSION: ${HADOOP_VERSION}
         HADOOP_BASE_URL: ${HADOOP_BASE_URL:-https://repo.huaweicloud.com/apache/hadoop/common}
-        HADOOP_FALLBACK_BASE_URLS: ${HADOOP_FALLBACK_BASE_URLS:-https://repo.huaweicloud.com/apache/hadoop/common https://dlcdn.apache.org/apache/hadoop/common https://archive.apache.org/dist/hadoop/common}
+        HADOOP_FALLBACK_BASE_URLS: "${HADOOP_FALLBACK_BASE_URLS:-https://repo.huaweicloud.com/apache/hadoop/common https://dlcdn.apache.org/hadoop/common https://archive.apache.org/dist/hadoop/common}"
         HADOOP_DOWNLOAD_RETRY: ${HADOOP_DOWNLOAD_RETRY:-2}
         HADOOP_DOWNLOAD_RETRY_DELAY: ${HADOOP_DOWNLOAD_RETRY_DELAY:-2}
         HADOOP_DOWNLOAD_CONNECT_TIMEOUT: ${HADOOP_DOWNLOAD_CONNECT_TIMEOUT:-10}
@@ -74,6 +74,7 @@ services:
         HADOOP_TARBALL_SHA512_ARM64: ${HADOOP_TARBALL_SHA512_ARM64:-}
         HADOOP_ARCHIVE_AMD64: ${HADOOP_ARCHIVE_AMD64:-}
         HADOOP_ARCHIVE_ARM64: ${HADOOP_ARCHIVE_ARM64:-}
+        AWS_SDK_BUNDLE_VERSION: ${AWS_SDK_BUNDLE_VERSION:-2.41.30}
     image: ${IMAGE_NAME}:${IMAGE_TAG}
     container_name: hadoop1
     hostname: hadoop1

@@ -183,6 +183,7 @@ Start from `.env.example`, then adjust local values. `.env` is no longer tracked
 - Hadoop tarball checksum (`HADOOP_TARBALL_SHA512` can be used for local builds; per-arch values are recommended for CI publish)
 - Per-architecture checksums (`HADOOP_TARBALL_SHA512_AMD64`, `HADOOP_TARBALL_SHA512_ARM64`)
 - Optional per-architecture archive names (`HADOOP_ARCHIVE_AMD64`, `HADOOP_ARCHIVE_ARM64`, default fallback is `hadoop-${HADOOP_VERSION}.tar.gz`)
+- AWS SDK bundle patch version (`AWS_SDK_BUNDLE_VERSION`, default `2.41.30`)
 - bind address for published ports (`HOST_BIND_IP`)
 - Service RPC/Web ports
 - HDFS replication factor
@@ -207,6 +208,7 @@ Recommended before publishing:
   - `HADOOP_TARBALL_SHA512_ARM64` (required for Linux ARM64)
   - `HADOOP_ARCHIVE_AMD64` (optional if AMD64 archive name differs from default `hadoop-${HADOOP_VERSION}.tar.gz`)
   - `HADOOP_ARCHIVE_ARM64` (optional if ARM64 archive name differs from default `hadoop-${HADOOP_VERSION}.tar.gz`)
+- Optionally set `AWS_SDK_BUNDLE_VERSION` (for example `2.41.30`) to override the AWS SDK bundle version replaced during Docker build.
 - Push a version tag to trigger publishing:
 
 ```bash
