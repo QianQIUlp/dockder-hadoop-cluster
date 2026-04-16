@@ -24,21 +24,46 @@ jobs:
         run: |
           echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
-      - name: Validate per-arch checksum variables
+      - name: Validate checksum inputs
         env:
+          HADOOP_TARBALL_SHA512: ${{ vars.HADOOP_TARBALL_SHA512 }}
           HADOOP_TARBALL_SHA512_AMD64: ${{ secrets.HADOOP_TARBALL_SHA512_AMD64 }}
           HADOOP_TARBALL_SHA512_ARM64: ${{ secrets.HADOOP_TARBALL_SHA512_ARM64 }}
         run: |
-          if [[ -z "${HADOOP_TARBALL_SHA512_AMD64}" || -z "${HADOOP_TARBALL_SHA512_ARM64}" ]]; then
-            echo "::error::Repository secrets HADOOP_TARBALL_SHA512_AMD64 and HADOOP_TARBALL_SHA512_ARM64 are required."
+          if [[ -z "${HADOOP_TARBALL_SHA512}" && -z "${HADOOP_TARBALL_SHA512_AMD64}" && -z "${HADOOP_TARBALL_SHA512_ARM64}" ]]; then
+            echo "::error::Provide checksum via HADOOP_TARBALL_SHA512 variable, or provide both HADOOP_TARBALL_SHA512_AMD64 and HADOOP_TARBALL_SHA512_ARM64 secrets."
             exit 1
           fi
-          if [[ ! "${HADOOP_TARBALL_SHA512_AMD64}" =~ ^[a-fA-F0-9]{128}$ ]]; then
+          if [[ -n "${HADOOP_TARBALL_SHA512}" && ! "${HADOOP_TARBALL_SHA512}" =~ ^[a-fA-F0-9]{128}$ ]]; then
+            echo "::error::HADOOP_TARBALL_SHA512 must be a 128-char SHA512 hex string."
+            exit 1
+          fi
+          if [[ -n "${HADOOP_TARBALL_SHA512_AMD64}" && ! "${HADOOP_TARBALL_SHA512_AMD64}" =~ ^[a-fA-F0-9]{128}$ ]]; then
             echo "::error::HADOOP_TARBALL_SHA512_AMD64 must be a 128-char SHA512 hex string."
             exit 1
           fi
-          if [[ ! "${HADOOP_TARBALL_SHA512_ARM64}" =~ ^[a-fA-F0-9]{128}$ ]]; then
+          if [[ -n "${HADOOP_TARBALL_SHA512_ARM64}" && ! "${HADOOP_TARBALL_SHA512_ARM64}" =~ ^[a-fA-F0-9]{128}$ ]]; then
             echo "::error::HADOOP_TARBALL_SHA512_ARM64 must be a 128-char SHA512 hex string."
+            exit 1
+          fi
+          if [[ ! "${HADOOP_TARBALL_SHA512_AMD64}" =~ ^[a-fA-F0-9]{128}$ ]]; then
+            if [[ -z "${HADOOP_TARBALL_SHA512}" && -z "${HADOOP_TARBALL_SHA512_ARM64}" ]]; then
+              echo "::error::HADOOP_TARBALL_SHA512_AMD64 is required when no generic checksum is provided."
+              exit 1
+            fi
+          fi
+          if [[ ! "${HADOOP_TARBALL_SHA512_ARM64}" =~ ^[a-fA-F0-9]{128}$ ]]; then
+            if [[ -z "${HADOOP_TARBALL_SHA512}" && -z "${HADOOP_TARBALL_SHA512_AMD64}" ]]; then
+              echo "::error::HADOOP_TARBALL_SHA512_ARM64 is required when no generic checksum is provided."
+              exit 1
+            fi
+          fi
+          if [[ -n "${HADOOP_TARBALL_SHA512_AMD64}" && -z "${HADOOP_TARBALL_SHA512_ARM64}" && -z "${HADOOP_TARBALL_SHA512}" ]]; then
+            echo "::error::HADOOP_TARBALL_SHA512_ARM64 is required when using per-arch checksums."
+            exit 1
+          fi
+          if [[ -n "${HADOOP_TARBALL_SHA512_ARM64}" && -z "${HADOOP_TARBALL_SHA512_AMD64}" && -z "${HADOOP_TARBALL_SHA512}" ]]; then
+            echo "::error::HADOOP_TARBALL_SHA512_AMD64 is required when using per-arch checksums."
             exit 1
           fi
 
@@ -58,6 +83,7 @@ jobs:
       - name: Show effective Hadoop source
         env:
           HADOOP_BASE_URL: ${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://dlcdn.apache.org/hadoop/common' }}
+          HADOOP_TARBALL_SHA512: ${{ vars.HADOOP_TARBALL_SHA512 }}
           HADOOP_TARBALL_SHA512_AMD64: ${{ secrets.HADOOP_TARBALL_SHA512_AMD64 }}
           HADOOP_TARBALL_SHA512_ARM64: ${{ secrets.HADOOP_TARBALL_SHA512_ARM64 }}
           HADOOP_ARCHIVE_AMD64: ${{ secrets.HADOOP_ARCHIVE_AMD64 }}
@@ -65,6 +91,9 @@ jobs:
           AWS_SDK_BUNDLE_VERSION: ${{ steps.resolve_aws_sdk_bundle.outputs.aws_sdk_bundle_version }}
         run: |
           echo "HADOOP_BASE_URL=${HADOOP_BASE_URL}"
+          if [[ -n "${HADOOP_TARBALL_SHA512}" ]]; then
+            echo "HADOOP_TARBALL_SHA512(prefix)=${HADOOP_TARBALL_SHA512:0:16}..."
+          fi
           echo "HADOOP_TARBALL_SHA512_AMD64(prefix)=${HADOOP_TARBALL_SHA512_AMD64:0:16}..."
           echo "HADOOP_TARBALL_SHA512_ARM64(prefix)=${HADOOP_TARBALL_SHA512_ARM64:0:16}..."
           echo "AWS_SDK_BUNDLE_VERSION=${AWS_SDK_BUNDLE_VERSION}"
@@ -109,7 +138,7 @@ jobs:
           tags: local/hadoop-cluster:scan
           build-args: |
             HADOOP_BASE_URL=${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://dlcdn.apache.org/hadoop/common' }}
-            HADOOP_TARBALL_SHA512=
+            HADOOP_TARBALL_SHA512=${{ vars.HADOOP_TARBALL_SHA512 }}
             HADOOP_TARBALL_SHA512_AMD64=${{ secrets.HADOOP_TARBALL_SHA512_AMD64 }}
             HADOOP_TARBALL_SHA512_ARM64=${{ secrets.HADOOP_TARBALL_SHA512_ARM64 }}
             HADOOP_ARCHIVE_AMD64=${{ secrets.HADOOP_ARCHIVE_AMD64 }}
@@ -122,6 +151,7 @@ jobs:
         if: steps.build_local.outcome == 'failure'
         env:
           HADOOP_BASE_URL: ${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://dlcdn.apache.org/hadoop/common' }}
+          HADOOP_TARBALL_SHA512: ${{ vars.HADOOP_TARBALL_SHA512 }}
           HADOOP_TARBALL_SHA512_AMD64: ${{ secrets.HADOOP_TARBALL_SHA512_AMD64 }}
           HADOOP_TARBALL_SHA512_ARM64: ${{ secrets.HADOOP_TARBALL_SHA512_ARM64 }}
           HADOOP_ARCHIVE_AMD64: ${{ secrets.HADOOP_ARCHIVE_AMD64 }}
@@ -129,8 +159,11 @@ jobs:
           AWS_SDK_BUNDLE_VERSION: ${{ steps.resolve_aws_sdk_bundle.outputs.aws_sdk_bundle_version }}
         run: |
           echo "::error::Docker builder stage failed while downloading/verifying Hadoop tarball."
-          echo "::error::Check repository secrets: HADOOP_TARBALL_SHA512_AMD64 and HADOOP_TARBALL_SHA512_ARM64 (required), optional HADOOP_ARCHIVE_AMD64/HADOOP_ARCHIVE_ARM64, and optional HADOOP_BASE_URL variable."
+          echo "::error::Check checksum inputs: HADOOP_TARBALL_SHA512 variable or per-arch secrets HADOOP_TARBALL_SHA512_AMD64/HADOOP_TARBALL_SHA512_ARM64."
           echo "::notice::Recommended HADOOP_BASE_URL=${HADOOP_BASE_URL}"
+          if [[ -n "${HADOOP_TARBALL_SHA512}" ]]; then
+            echo "::notice::Current HADOOP_TARBALL_SHA512(prefix)=${HADOOP_TARBALL_SHA512:0:16}..."
+          fi
           echo "::notice::Current HADOOP_TARBALL_SHA512_AMD64(prefix)=${HADOOP_TARBALL_SHA512_AMD64:0:16}..."
           echo "::notice::Current HADOOP_TARBALL_SHA512_ARM64(prefix)=${HADOOP_TARBALL_SHA512_ARM64:0:16}..."
           echo "::notice::Current AWS_SDK_BUNDLE_VERSION=${AWS_SDK_BUNDLE_VERSION}"
@@ -143,7 +176,7 @@ jobs:
           {
             echo "## Build Failure Hint"
             echo "- Local image build failed in Hadoop download/verification stage."
-            echo "- Required variables: HADOOP_TARBALL_SHA512_AMD64 and HADOOP_TARBALL_SHA512_ARM64 (both 128-char SHA512 hex)."
+            echo "- Required checksum input: HADOOP_TARBALL_SHA512 variable or both HADOOP_TARBALL_SHA512_AMD64/HADOOP_TARBALL_SHA512_ARM64 secrets (128-char SHA512 hex)."
             echo "- Optional variables: HADOOP_ARCHIVE_AMD64 and HADOOP_ARCHIVE_ARM64 for architecture-specific tarball names."
             echo "- Optional variable: HADOOP_BASE_URL (default: https://dlcdn.apache.org/hadoop/common)."
             echo "- Optional variable: AWS_SDK_BUNDLE_VERSION (default: 2.41.30)."
@@ -174,7 +207,7 @@ jobs:
           output: trivy-results.sarif
 
       - name: Create SARIF placeholder when scan is skipped
-        if: steps.build_local.outcome != 'success'
+        if: always() && steps.build_local.outcome != 'success'
         run: |
           cat > trivy-results.sarif <<'EOF'
           {
@@ -222,7 +255,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             HADOOP_BASE_URL=${{ vars.HADOOP_BASE_URL != '' && vars.HADOOP_BASE_URL || 'https://dlcdn.apache.org/hadoop/common' }}
-            HADOOP_TARBALL_SHA512=
+            HADOOP_TARBALL_SHA512=${{ vars.HADOOP_TARBALL_SHA512 }}
             HADOOP_TARBALL_SHA512_AMD64=${{ secrets.HADOOP_TARBALL_SHA512_AMD64 }}
             HADOOP_TARBALL_SHA512_ARM64=${{ secrets.HADOOP_TARBALL_SHA512_ARM64 }}
             HADOOP_ARCHIVE_AMD64=${{ secrets.HADOOP_ARCHIVE_AMD64 }}
