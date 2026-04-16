@@ -85,6 +85,35 @@ cd docker-hadoop-cluster
 cp .env.example .env
 ```
 
+### 1.1 直接拉取公开镜像（免本地构建）
+
+如果你只想快速体验，不想本地 build，可直接拉取 GHCR 公共镜像：
+
+```bash
+docker pull ghcr.io/qianqiulp/hadoop-cluster-3.4.1:latest
+```
+
+如需固定版本，也可用版本标签：
+
+```bash
+docker pull ghcr.io/qianqiulp/hadoop-cluster-3.4.1:v3.4.7
+```
+
+然后在 `.env` 中设置镜像来源并跳过构建：
+
+```bash
+IMAGE_NAME=ghcr.io/qianqiulp/hadoop-cluster-3.4.1
+IMAGE_TAG=latest
+```
+
+启动时使用：
+
+```bash
+docker compose up -d --no-build
+```
+
+如果拉取时报 `denied`，请确认 GHCR 包可见性为 Public。
+
 ### 2. 构建并启动集群
 
 ```bash
@@ -240,7 +269,7 @@ git push origin v3.3.6
 拉取示例：
 
 ```bash
-docker pull ghcr.io/<你的GitHub用户名>/dockder-hadoop-cluster:latest
+docker pull ghcr.io/qianqiulp/hadoop-cluster-3.4.1:latest
 ```
 
 ---

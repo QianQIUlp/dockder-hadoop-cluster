@@ -83,6 +83,35 @@ cd docker-hadoop-cluster
 cp .env.example .env
 ```
 
+### 1.1 Pull Public Image Directly (No Local Build)
+
+If you just want to try the cluster quickly, you can pull the public GHCR image directly:
+
+```bash
+docker pull ghcr.io/qianqiulp/hadoop-cluster-3.4.1:latest
+```
+
+To pin a specific release tag:
+
+```bash
+docker pull ghcr.io/qianqiulp/hadoop-cluster-3.4.1:v3.4.7
+```
+
+Then set image source in `.env` and skip build:
+
+```bash
+IMAGE_NAME=ghcr.io/qianqiulp/hadoop-cluster-3.4.1
+IMAGE_TAG=latest
+```
+
+Start with:
+
+```bash
+docker compose up -d --no-build
+```
+
+If pull returns `denied`, confirm the GHCR package visibility is set to Public.
+
 ### 2. Build and start cluster
 
 ```bash
@@ -238,7 +267,7 @@ After the first publish, switch package visibility to Public in GitHub Packages 
 Pull example:
 
 ```bash
-docker pull ghcr.io/<your-github-username>/dockder-hadoop-cluster:latest
+docker pull ghcr.io/qianqiulp/hadoop-cluster-3.4.1:latest
 ```
 
 ---
