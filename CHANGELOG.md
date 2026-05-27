@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-05-27
+
+### Added
+- **Lightweight Standalone Mode** (`docker-compose.standalone.yml`): A single-container pseudo-distributed Hadoop deployment consolidated with all core Hadoop services (NameNode, SecondaryNameNode, DataNode, ResourceManager, NodeManager, and JobHistoryServer).
+- **HDFS Test Data Preloader**: Automatic background pre-loading of sample datasets (`hadoop-intro.txt` and `quotes.txt`) into `/input` once NameNode exits safemode.
+- **Interactive Helper Scripts**:
+  - `scripts/shell.sh`: One-click interactive container shell as the secure, non-root `hadoop` user.
+  - `scripts/status.sh`: Observability checker displaying active containers, JVM processes, HDFS storage metrics, and YARN nodes.
+  - Registered POSIX executable flags (+x) directly in the Git repository index for out-of-the-box script execution.
+- **Instant MapReduce WordCount Tutorial**:
+  - `examples/run-wordcount.sh`: Automated MapReduce demonstration script verifying datasets, cleaning outputs, submitting jobs, and sorting/printing word counts.
+- **Bilingual Documentation & Contribution Guidelines**: Documented new standalone/helper/demo features inside `README.md`, `README_EN.md`, and `CONTRIBUTING.md`.
+
 ## [1.2.0] - 2026-05-27
 
 ### Added
