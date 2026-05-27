@@ -37,21 +37,29 @@ Follow these steps to set up the cluster locally:
    ```
 
 4. **Spin up the Cluster:**
-   To spin up the 3-node cluster:
-   ```bash
-   docker-compose up -d
-   ```
+   - For the standard 3-node cluster:
+     ```bash
+     ./scripts/up.sh
+     ```
+   - For the lightweight single-node standalone cluster:
+     ```bash
+     docker compose -f docker-compose.standalone.yml up -d
+     ```
 
 5. **Verify the Installation:**
    - Access the NameNode Web UI: [http://localhost:9870](http://localhost:9870)
    - Access the YARN ResourceManager Web UI: [http://localhost:8088](http://localhost:8088)
    - Access the JobHistory Server Web UI: [http://localhost:19888](http://localhost:19888)
 
-6. **Check Cluster Health:**
-   Verify all container states and healthchecks:
-   ```bash
-   docker-compose ps
-   ```
+6. **Check Cluster Health & Use Helpers:**
+   - Use our built-in checker to verify health, Java processes, and cluster statistics:
+     ```bash
+     ./scripts/status.sh
+     ```
+   - Access the interactive container shell as the secure `hadoop` user:
+     ```bash
+     ./scripts/shell.sh
+     ```
 
 ### 3. Security Audits (Trivy Scan)
 We enforce strict security checks in our CI using Trivy to scan the built images.
