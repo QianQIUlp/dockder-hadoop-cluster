@@ -352,7 +352,7 @@ ensure_daemon_user_writable() {
 
 wait_for_namenode() {
     local i
-    if [[ "${NODE_ROLE}" == "namenode" ]]; then
+    if [[ "${NODE_ROLE}" == "namenode" || "${NODE_ROLE}" == "standalone" ]]; then
         return
     fi
 
@@ -423,6 +423,42 @@ reset_datanode_data_if_needed() {
     printf '%s\n' "${HADOOP_VERSION}" > "${version_marker}" || true
 }
 
+preload_test_data() {
+    # Run in background to avoid blocking the main startup sequence
+    (
+        log "Preload test data task started in background"
+        # Wait for HDFS to be ready and out of safemode
+        local i
+        for ((i = 1; i <= 60; i++)); do
+            if hdfs dfsadmin -safemode get 2>/dev/null | grep -q "Safe mode is OFF"; then
+                log "HDFS is ready and out of safemode. Preloading test data..."
+                
+                # Check if data already exists in HDFS to avoid duplicate preloading on restarts
+                if ! run_as_daemon_user "hdfs dfs -test -e /input" >/dev/null 2>&1; then
+                    log "Creating /input directory in HDFS"
+                    run_as_daemon_user "hdfs dfs -mkdir -p /input"
+                    
+                    # Create some interesting test files in HDFS
+                    log "Writing sample text files to HDFS /input"
+                    
+                    # File 1: Words of wisdom (Hadoop introduction)
+                    run_as_daemon_user "printf 'Hadoop is an open-source software framework for storing data and running applications on clusters of commodity hardware. It provides massive storage for any kind of data, enormous processing power and the ability to handle virtually limitless concurrent tasks or jobs.\n' | hdfs dfs -put - /input/hadoop-intro.txt"
+                    
+                    # File 2: Simple poem / quotes
+                    run_as_daemon_user "printf 'Hello Hadoop World\nApache Hadoop and Apache Spark are powerful big data tools\nBig data is rich in insights\nMuscle memory is built by practice\nPractice makes perfect\n' | hdfs dfs -put - /input/quotes.txt"
+                    
+                    log "Test data preloading completed successfully!"
+                else
+                    log "/input already exists in HDFS, skipping preload"
+                fi
+                return 0
+            fi
+            sleep 2
+        done
+        log "Timed out waiting for HDFS to exit safemode, test data preload skipped"
+    ) &
+}
+
 start_role_daemons() {
     # Start role-specific daemon sets.
     # 按节点角色启动对应 Daemon 组合。
@@ -432,6 +468,9 @@ start_role_daemons() {
             log "Starting NameNode and local DataNode"
             run_as_daemon_user "hdfs --daemon start namenode"
             run_as_daemon_user "hdfs --daemon start datanode"
+            if [[ "${PRELOAD_TEST_DATA:-false}" == "true" ]]; then
+                preload_test_data
+            fi
             ;;
         resourcemanager)
             log "Starting ResourceManager, NodeManager and local DataNode"
@@ -449,6 +488,19 @@ start_role_daemons() {
             log "Starting worker daemons (DataNode + NodeManager)"
             run_as_daemon_user "hdfs --daemon start datanode"
             run_as_daemon_user "yarn --daemon start nodemanager"
+            ;;
+        standalone)
+            format_namenode_if_needed
+            log "Starting Standalone Pseudo-Distributed Hadoop services (NameNode, SecondaryNameNode, DataNode, ResourceManager, NodeManager, JobHistoryServer)"
+            run_as_daemon_user "hdfs --daemon start namenode"
+            run_as_daemon_user "hdfs --daemon start secondarynamenode"
+            run_as_daemon_user "hdfs --daemon start datanode"
+            run_as_daemon_user "yarn --daemon start resourcemanager"
+            run_as_daemon_user "yarn --daemon start nodemanager"
+            run_as_daemon_user "mapred --daemon start historyserver"
+            if [[ "${PRELOAD_TEST_DATA:-false}" == "true" ]]; then
+                preload_test_data
+            fi
             ;;
         *)
             log "Unknown NODE_ROLE=${NODE_ROLE}, only sshd will run"
