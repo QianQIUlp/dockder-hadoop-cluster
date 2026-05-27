@@ -42,6 +42,8 @@ docker-hadoop-cluster/
 │   ├── yarn-site.xml
 │   ├── mapred-site.xml
 │   └── workers
+├── examples/
+│   └── run-wordcount.sh          # MapReduce WordCount demonstration tutorial script
 ├── .env.example
 ├── data/                         # optional: only used if you switch back to bind mounts
 │   ├── hadoop1/
@@ -49,10 +51,13 @@ docker-hadoop-cluster/
 │   └── hadoop3/
 ├── docker-compose.yml
 ├── docker-compose.secure.yml
+├── docker-compose.standalone.yml # Added: single-container pseudo-distributed setup
 ├── Dockerfile
 ├── entrypoint.sh
 ├── scripts/
-│   └── up.sh
+│   ├── up.sh
+│   ├── shell.sh                  # Added: container login shell shortcut
+│   └── status.sh                 # Added: cluster daemon status checker
 ├── README.md
 └── README_EN.md
 ```
@@ -178,6 +183,40 @@ docker exec -it hadoop1 jps
 docker exec -it hadoop2 jps
 docker exec -it hadoop3 jps
 ```
+
+### 4. Lightweight Dev/Lab: Standalone Pseudo-Distributed Mode
+
+If you are learning Hadoop, doing a quick demo, or running on a resource-constrained computer, this project provides a **Lightweight Standalone Pseudo-Distributed Mode**. All Hadoop core daemons (NameNode, SecondaryNameNode, DataNode, ResourceManager, NodeManager, and JobHistoryServer) run within a single consolidated container.
+
+#### 4.1 Start the Standalone Cluster
+```bash
+docker compose -f docker-compose.standalone.yml up -d
+```
+On boot, the container will perform auto-formatting and **automatically pre-load test datasets into HDFS** (including `/input/hadoop-intro.txt` and `/input/quotes.txt`).
+
+#### 4.2 Built-in Onboarding & Helper Utilities
+To lower the barrier to entry and simplify daily operations, we added several management utilities in `scripts/`:
+- **Check Cluster Health and Daemons**:
+  ```bash
+  ./scripts/status.sh
+  ```
+  This script automatically scans active Hadoop containers, runs `jps` to output running Java daemons on each node, prints the HDFS storage report, and lists YARN workers.
+- **One-click Interactive Container Shell**:
+  ```bash
+  ./scripts/shell.sh
+  ```
+  This connects you directly to the active master/standalone container shell running as the secure, non-root `hadoop` user with all paths pre-configured.
+
+#### 4.3 MapReduce WordCount Tutorial (Instant Gratification)
+We pre-loaded sample text data and created an end-to-end MapReduce execution script. Run directly on your host terminal:
+```bash
+./examples/run-wordcount.sh
+```
+The script automatically:
+1. Verifies input datasets pre-loaded in HDFS (under `/input`).
+2. Cleans up any prior MapReduce outputs (`/output`).
+3. Dynamically locates the container's built-in examples JAR and submits the job.
+4. Reads the HDFS output and prints the Top 20 words sorted by count.
 
 ---
 

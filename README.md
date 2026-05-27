@@ -44,6 +44,8 @@ docker-hadoop-cluster/
 │   ├── yarn-site.xml
 │   ├── mapred-site.xml
 │   └── workers
+├── examples/
+│   └── run-wordcount.sh          # 极速 WordCount MapReduce 体验演示脚本
 ├── .env.example
 ├── data/                         # 可选：仅在你改回 bind mount 时使用（默认使用命名卷）
 │   ├── hadoop1/
@@ -51,17 +53,20 @@ docker-hadoop-cluster/
 │   └── hadoop3/
 ├── docker-compose.yml
 ├── docker-compose.secure.yml
+├── docker-compose.standalone.yml # 新增：单节点伪分布式极简部署配置
 ├── Dockerfile
 ├── entrypoint.sh
 ├── scripts/
-│   └── up.sh
+│   ├── up.sh
+│   ├── shell.sh                  # 新增：一键登录容器交互 Shell 工具
+│   └── status.sh                 # 新增：一键查看集群与 JVM 服务状态工具
 ├── README.md
 └── README_EN.md
 ```
 
 ---
 
-## 🌐 端口映射（默认值）
+## 🌐 Port Mapping (Default)
 
 默认仅绑定到 `127.0.0.1`（通过 `HOST_BIND_IP` 控制），避免误暴露到公网网卡。
 
@@ -180,6 +185,40 @@ docker exec -it hadoop1 jps
 docker exec -it hadoop2 jps
 docker exec -it hadoop3 jps
 ```
+
+### 4. 极简开发/教学版：单节点伪分布式模式 (Standalone Mode)
+
+如果你在本地学习、演示或电脑内存受限（分布式三节点通常需要较多内存），本项目提供了一套**极简单节点伪分布式模式**。所有的 Hadoop 守护进程（NameNode、SecondaryNameNode、DataNode、ResourceManager、NodeManager、JobHistoryServer）均运行在同一个容器内。
+
+#### 4.1 启动单节点集群
+```bash
+docker compose -f docker-compose.standalone.yml up -d
+```
+启动后，容器内会执行自动格式化并**自动在 HDFS 中预加载测试数据**（包含 `/input/hadoop-intro.txt` 与 `/input/quotes.txt`）。
+
+#### 4.2 极简运维快捷工具
+为了降低学习和排障门槛，我们在 `scripts/` 下增加了以下快捷工具：
+- **查看集群健康状态与进程**：
+  ```bash
+  ./scripts/status.sh
+  ```
+  该命令会自动检查正在运行的 Hadoop 容器，列出每个节点当前活跃的 Java 进程（JPS），并打印 HDFS 存储报告与 YARN 节点列表。
+- **一键登录容器交互 Shell**（非 root 安全用户 `hadoop`）：
+  ```bash
+  ./scripts/shell.sh
+  ```
+  该命令会自动检测活跃的 master/standalone 容器并一键连接，直接处于配置好的 Hadoop 环境中。
+
+#### 4.3 经典 WordCount MapReduce 示例（即时反馈体验）
+我们预装了测试数据并提供了一键运行 MapReduce 的脚本。在宿主机上直接执行：
+```bash
+./examples/run-wordcount.sh
+```
+该脚本会自动：
+1. 检查 HDFS 中的预加载输入数据（`/input` 目录）。
+2. 清理旧的输出目录（`/output`）。
+3. 动态寻找容器内预装的 MapReduce 示例 Jar 包并提交任务。
+4. 在控制台直接输出词频统计最高的 Top 20 个单词及频次。
 
 ---
 
