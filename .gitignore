@@ -20,6 +20,8 @@
 # CN: 容器、脚本或调试过程产生的通用日志文件。
 *.log
 logs/
+/diagnostics/
+/.hadoop-lab-mode
 
 # ============================================================
 # Hadoop runtime data | Hadoop 运行期数据目录

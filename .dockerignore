@@ -4,6 +4,8 @@
 .gitattributes
 .vscode
 .env
+.hadoop-lab-mode
+diagnostics
 data
 *.log
 **/.ssh

@@ -1,463 +1,162 @@
-# 🐳 Docker-Hadoop-Cluster
+# Hadoop Lab
 
-[中文](README.md) | [English](README_EN.md)
+[中文](README.md) · [English](README_EN.md)
 
-![Docker](https://img.shields.io/badge/Docker-Supported-blue.svg?logo=docker)
-![Hadoop](https://img.shields.io/badge/Hadoop-3.4.1-yellow.svg?logo=apache)
-![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
+**把环境准备、服务观察、MapReduce 执行、节点故障与恢复组织成一条可重复的 Hadoop 学习路径。**
 
-本项目用于教学场景下快速搭建 Hadoop 3.4.1 三节点完全分布式集群。
+[![CI](https://github.com/QianQIUlp/docker-hadoop-cluster/actions/workflows/ci.yml/badge.svg)](https://github.com/QianQIUlp/docker-hadoop-cluster/actions/workflows/ci.yml)
+[![Hadoop](https://img.shields.io/badge/Hadoop-3.4.1-EF5B25?logo=apache)](https://hadoop.apache.org/)
+[![Image](https://img.shields.io/badge/GHCR-multi--arch-2496ED?logo=docker)](https://github.com/QianQIUlp/docker-hadoop-cluster/pkgs/container/hadoop-cluster-3.4.1)
+[![License](https://img.shields.io/badge/License-Apache--2.0-green.svg)](LICENSE)
 
-核心特性：
+Hadoop Lab 是面向课堂、自学和本地实验的 Hadoop 3.4.1 环境。初学者只需要一个入口就能检查电脑、启动服务、运行第一份 MapReduce 作业、判断故障并安全恢复；需要理解节点角色时，再从单容器切换到三节点完全分布式布局。
 
-1. Hadoop 配置外置到 `conf/`，方便直接修改 XML。
-2. 使用统一 `entrypoint.sh` 自动启动 sshd 与角色对应 Daemon。
-3. 提供 `.env` 参数化控制，减少硬编码。
-4. 默认使用 Docker 命名卷持久化数据，并通过共享 SSH 密钥卷保障节点互信。
-5. 提供 `.gitignore`，避免提交运行期二进制和临时文件。
-6. 提供 GHCR 发布工作流，默认包含漏洞扫描、镜像签名与 SBOM/Provenance。
-7. 基础运行时升级到 Temurin JRE 11，更匹配 Hadoop 3.4.x 官方推荐。
+> [!IMPORTANT]
+> 这是教学与本地实验工具，不是生产 Hadoop 平台。它不提供 Kerberos、NameNode HA、多机编排、备份、容量规划或运行 SLA。Web 与 RPC 端口默认仅绑定 `127.0.0.1`。
 
-> 说明：镜像已预装常见排障工具（如 vim、net-tools、ping），便于教学与调试。
+## 第一次运行
 
----
+要求：Docker Desktop，或包含 Docker Compose v2 的 Docker Engine。Windows 用户可在 PowerShell 中使用 `hadoop-lab.ps1`；它会调用 Git for Windows 自带的 Bash。
 
-## 🏗️ 集群角色设计
+```bash
+git clone https://github.com/QianQIUlp/docker-hadoop-cluster.git
+cd docker-hadoop-cluster
 
-| 主机名 | 核心角色 |
-| :--- | :--- |
-| **hadoop1** | `NameNode` + `DataNode` |
-| **hadoop2** | `ResourceManager` + `NodeManager` + `DataNode` |
-| **hadoop3** | `SecondaryNameNode` + `JobHistoryServer` + `DataNode` |
+./hadoop-lab init
+./hadoop-lab doctor
+./hadoop-lab up standalone
+./hadoop-lab demo wordcount
+```
 
-每个容器都启动 sshd，便于节点间通信和后续运维操作。
+普通启动会拉取公开的多架构 GHCR 镜像，不会下载并编译 Hadoop。修改了 `Dockerfile`、`entrypoint.sh` 或镜像内配置后，才使用：
 
----
+```bash
+./hadoop-lab up standalone --build
+```
 
-## 📁 目录结构
+## 两种学习模式
+
+| 模式 | 适合场景 | 布局 | 启动命令 |
+|---|---|---|---|
+| `standalone` | 第一次接触、低内存电脑、快速演示 | 六个 Hadoop daemon 位于一个容器 | `./hadoop-lab up standalone` |
+| `cluster` | 节点角色、SSH、DataNode 故障实验 | 三个容器模拟完全分布式集群 | `./hadoop-lab up cluster` |
+
+三节点角色如下：
+
+| 节点 | Hadoop 服务 |
+|---|---|
+| `hadoop1` | NameNode、DataNode |
+| `hadoop2` | ResourceManager、NodeManager、DataNode |
+| `hadoop3` | SecondaryNameNode、JobHistoryServer、DataNode |
+
+两种模式使用同一个镜像，通过运行时角色参数启动不同 daemon。
+
+```mermaid
+flowchart LR
+    Student["学生<br/>hadoop-lab"] --> Doctor["init · doctor"]
+    Doctor --> Mode{"学习目标"}
+    Mode -->|"先跑通概念"| One["standalone<br/>一个容器 · 六个 daemon"]
+    Mode -->|"观察节点角色"| Three["cluster<br/>三个节点"]
+    One --> Labs["prepare · observe · check · reset"]
+    Three --> Labs
+    Labs --> HDFS["HDFS · 9870"]
+    Labs --> YARN["YARN · 8088"]
+    Labs --> History["JobHistory · 19888"]
+```
+
+## 一个入口完成日常操作
 
 ```text
-docker-hadoop-cluster/
-├── conf/
-│   ├── core-site.xml
-│   ├── hdfs-site.xml
-│   ├── yarn-site.xml
-│   ├── mapred-site.xml
-│   └── workers
-├── examples/
-│   └── run-wordcount.sh          # 极速 WordCount MapReduce 体验演示脚本
-├── .env.example
-├── data/                         # 可选：仅在你改回 bind mount 时使用（默认使用命名卷）
-│   ├── hadoop1/
-│   ├── hadoop2/
-│   └── hadoop3/
-├── docker-compose.yml
-├── docker-compose.secure.yml
-├── docker-compose.standalone.yml # 新增：单节点伪分布式极简部署配置
-├── Dockerfile
-├── entrypoint.sh
-├── scripts/
-│   ├── up.sh
-│   ├── shell.sh                  # 新增：一键登录容器交互 Shell 工具
-│   └── status.sh                 # 新增：一键查看集群与 JVM 服务状态工具
-├── README.md
-└── README_EN.md
+./hadoop-lab init                         创建本地 .env，不覆盖现有设置
+./hadoop-lab doctor [MODE]                检查 Docker、内存、端口和 Compose
+./hadoop-lab up [MODE]                    拉取公开镜像、启动并等待健康
+./hadoop-lab status [--json]              验证容器和每个预期 daemon
+./hadoop-lab open [--launch]              显示或打开三个观察页面
+./hadoop-lab shell [NODE]                 以非 root hadoop 用户进入节点
+./hadoop-lab logs [NODE] [--tail N]       查看集群或单节点日志
+./hadoop-lab diagnose                     生成脱敏诊断包
+./hadoop-lab stop [MODE|all]              停止并保留数据
+./hadoop-lab reset MODE                   重建运行时并保留数据
+./hadoop-lab reset MODE --data            经确认后删除该模式的命名卷
 ```
 
----
+`doctor`、`status` 和 `lesson check` 在失败时返回非零退出码，因此教师脚本和 CI 可以复用同一套检查。旧的 `scripts/up.sh`、`status.sh`、`shell.sh` 仍保留为兼容入口。
 
-## 🌐 Port Mapping (Default)
-
-默认仅绑定到 `127.0.0.1`（通过 `HOST_BIND_IP` 控制），避免误暴露到公网网卡。
-
-- HDFS NameNode UI: <http://localhost:9870>
-- HDFS RPC: `9000`
-- YARN ResourceManager UI: <http://localhost:8088>
-- SecondaryNameNode UI: <http://localhost:9868>
-- JobHistory UI: <http://localhost:19888>
-
-以上默认值均可在 `.env` 中调整。
-
----
-
-## 🚀 快速开始
-
-### 1. 拉取项目
+## 从结果进入原理：七个实验
 
 ```bash
-git clone git@github.com:你的用户名/docker-hadoop-cluster.git
-cd docker-hadoop-cluster
-cp .env.example .env
+./hadoop-lab lesson list
+./hadoop-lab lesson start 00-first-run
+./hadoop-lab lesson check 00-first-run
 ```
 
-### 1.1 直接拉取公开镜像（免本地构建）
+| 实验 | 学生完成后能够解释 | 模式 |
+|---|---|---|
+| 00 First run | 容器健康、Java daemon 和 Web UI 的区别 | 单节点 |
+| 01 HDFS basics | HDFS namespace 与宿主机文件的区别 | 任意 |
+| 02 WordCount | 输入、YARN 应用与 reducer 输出的关系 | 任意 |
+| 03 YARN observation | ResourceManager 与 JobHistory 的职责 | 任意 |
+| 04 Cluster roles | 六个服务如何分布到三个节点 | 三节点 |
+| 05 Failure recovery | DataNode 离线、观察与恢复过程 | 三节点 |
+| 06 Configuration | `.env`、XML 模板与生效配置的关系 | 任意 |
 
-如果你只想快速体验，不想本地 build，可直接拉取 GHCR 公共镜像：
+每个实验都有目标、预期证据、解释、自动检查和最小范围 reset。详见 [`labs/`](labs/README.md)。WordCount 只替换 `/labs/wordcount/output`，不会删除学生可能正在使用的通用 `/output`。
+
+## 可观察、可诊断、可恢复
 
 ```bash
-docker pull ghcr.io/qianqiulp/hadoop-cluster-3.4.1:latest
+./hadoop-lab status
+./hadoop-lab logs hadoop-standalone
+./hadoop-lab diagnose
 ```
 
-如需固定版本，也可用版本标签：
+状态命令同时检查 Docker health 和每个节点应有的 JVM 进程，并给出具体下一步。诊断包包含版本、精简容器状态、检查结果和最近日志，不包含 `.env` 或完整容器环境；分享前仍应人工检查。
+
+停止容器默认保留命名卷。只有 `reset MODE --data` 会删除所选模式声明的数据卷，并要求交互式确认或显式 `--yes`。
+
+## Web 观察面
+
+- NameNode / HDFS：<http://localhost:9870>
+- ResourceManager / YARN：<http://localhost:8088>
+- SecondaryNameNode：<http://localhost:9868>
+- MapReduce JobHistory：<http://localhost:19888>
+
+实际端口可在 `.env` 中调整。`HOST_BIND_IP=127.0.0.1` 是安全默认值。
+
+## 配置与持久化
+
+- `.env`：镜像、端口、角色地址、JVM、HDFS 与健康检查参数。
+- `conf/`：`core-site.xml`、`hdfs-site.xml`、`yarn-site.xml`、`mapred-site.xml` 和 `workers` 模板。
+- Docker 命名卷：NameNode 元数据、DataNode blocks、YARN 与 JobHistory 状态。
+- 共享 SSH 命名卷：为教学中的 `start-*.sh` 和跨节点观察提供互信。
+
+默认 `DFS_REPLICATION=1`，让单节点第一课不会从欠副本警告开始；三节点课程可将它调整为 3 观察副本行为。
+
+详细资料：
+
+- [架构与边界](docs/architecture.md)
+- [配置参考](docs/configuration.md)
+- [运行与恢复](docs/operations.md)
+- [故障排查决策表](docs/troubleshooting.md)
+- [90 分钟教学建议](docs/teaching-guide.md)
+- [个人网站展示素材](docs/project-showcase.md)
+
+## 开发与验证
 
 ```bash
-docker pull ghcr.io/qianqiulp/hadoop-cluster-3.4.1:v3.4.7
+shellcheck hadoop-lab scripts/*.sh examples/*.sh
+bash tests/test-cli.sh
+docker compose --env-file .env.example -f docker-compose.standalone.yml config --quiet
+docker compose --env-file .env.example -f docker-compose.yml config --quiet
 ```
 
-然后在 `.env` 中设置镜像来源并跳过构建：
+GitHub Actions 还会实际启动 standalone，等待健康，运行 WordCount，并验证 HDFS 输出；三节点 smoke test 验证三个容器及角色进程。镜像发布流程继续执行多架构构建、Trivy、SBOM、provenance 和 Cosign 签名。
 
-```bash
-IMAGE_NAME=ghcr.io/qianqiulp/hadoop-cluster-3.4.1
-IMAGE_TAG=latest
-```
+## 项目边界与支持
 
-启动时使用：
+- 本地学习问题或可复现 bug：使用 GitHub Issue 模板，并附 `diagnose` 包中经过检查的相关文本。
+- 安全问题：按照 [SECURITY.md](SECURITY.md) 私下报告。
+- 贡献流程：[CONTRIBUTING.md](CONTRIBUTING.md)。
+- 变更记录：[CHANGELOG.md](CHANGELOG.md)。
 
-```bash
-docker compose up -d --no-build
-```
-
-如果拉取时报 `denied`，请确认 GHCR 包可见性为 Public。
-
-### 2. 构建并启动集群
-
-```bash
-./scripts/up.sh
-```
-
-该命令会执行两件事：
-
-- 仅构建一次共享核心镜像（由 hadoop1 触发），hadoop2/hadoop3 复用同一标签。
-- 启动完成后自动清理本仓库相关的悬空镜像与旧标签，尽量保持本地只保留当前 compose 所需镜像。
-
-默认情况下：
-
-- 运行数据写入 Docker 命名卷（避免 macOS/WSL2 下 bind mount 的 I/O 损耗）。
-- 三节点共享同一套 SSH 密钥卷，可直接支持 `start-dfs.sh` / `start-yarn.sh` 这类跨节点 SSH 脚本。
-
-如果你仍想使用原生 compose 命令，也可以：
-
-```bash
-docker compose up -d --build
-```
-
-启动后，容器会自动执行角色对应的初始化流程。
-
-如果你希望叠加安全资源限制模板：
-
-```bash
-./scripts/up.sh --secure
-```
-
-### 2.1 构建耗时优化与详细日志
-
-Dockerfile 已内置以下默认优化：
-
-- 默认优先使用更快镜像源（`repo.huaweicloud.com`），再回退官方源。
-- 默认不设置下载总时长硬上限（`HADOOP_DOWNLOAD_MAX_TIME=0`），避免慢网大文件中途被截断。
-- 当网络长期低速（默认 `< 1KB/s` 且持续 `30s`）时自动失败并重试，避免无限等待。
-- 下载阶段增加每个镜像源的开始/成功/失败与耗时日志。
-
-如果你希望看到完整构建日志，建议使用：
-
-```bash
-docker build --progress=plain \
-  --build-arg HADOOP_TARBALL_SHA512=<官方SHA512> \
-  -t dockder-hadoop-cluster:dev .
-```
-
-如果你网络环境不同，也可手动调整：
-
-```bash
-docker build --progress=plain \
-  --build-arg HADOOP_BASE_URL=https://dlcdn.apache.org/apache/hadoop/common \
-  --build-arg HADOOP_DOWNLOAD_RETRY=1 \
-  --build-arg HADOOP_DOWNLOAD_MAX_TIME=1200 \
-  --build-arg HADOOP_TARBALL_SHA512=<官方SHA512> \
-  -t dockder-hadoop-cluster:dev .
-```
-
-### 3. 查看容器状态与进程
-
-```bash
-docker compose ps
-docker exec -it hadoop1 jps
-docker exec -it hadoop2 jps
-docker exec -it hadoop3 jps
-```
-
-### 4. 极简开发/教学版：单节点伪分布式模式 (Standalone Mode)
-
-如果你在本地学习、演示或电脑内存受限（分布式三节点通常需要较多内存），本项目提供了一套**极简单节点伪分布式模式**。所有的 Hadoop 守护进程（NameNode、SecondaryNameNode、DataNode、ResourceManager、NodeManager、JobHistoryServer）均运行在同一个容器内。
-
-#### 4.1 启动单节点集群
-```bash
-docker compose -f docker-compose.standalone.yml up -d
-```
-启动后，容器内会执行自动格式化并**自动在 HDFS 中预加载测试数据**（包含 `/input/hadoop-intro.txt` 与 `/input/quotes.txt`）。
-
-#### 4.2 极简运维快捷工具
-为了降低学习和排障门槛，我们在 `scripts/` 下增加了以下快捷工具：
-- **查看集群健康状态与进程**：
-  ```bash
-  ./scripts/status.sh
-  ```
-  该命令会自动检查正在运行的 Hadoop 容器，列出每个节点当前活跃的 Java 进程（JPS），并打印 HDFS 存储报告与 YARN 节点列表。
-- **一键登录容器交互 Shell**（非 root 安全用户 `hadoop`）：
-  ```bash
-  ./scripts/shell.sh
-  ```
-  该命令会自动检测活跃的 master/standalone 容器并一键连接，直接处于配置好的 Hadoop 环境中。
-
-#### 4.3 经典 WordCount MapReduce 示例（即时反馈体验）
-我们预装了测试数据并提供了一键运行 MapReduce 的脚本。在宿主机上直接执行：
-```bash
-./examples/run-wordcount.sh
-```
-该脚本会自动：
-1. 检查 HDFS 中的预加载输入数据（`/input` 目录）。
-2. 清理旧的输出目录（`/output`）。
-3. 动态寻找容器内预装的 MapReduce 示例 Jar 包并提交任务。
-4. 在控制台直接输出词频统计最高的 Top 20 个单词及频次。
-
----
-
-## ⚙️ 配置方式（重点）
-
-### 方式一：直接修改 `conf/`（推荐）
-
-你只需要修改以下文件：
-
-- `conf/core-site.xml`
-- `conf/hdfs-site.xml`
-- `conf/yarn-site.xml`
-- `conf/mapred-site.xml`
-- `conf/workers`
-
-`docker-compose.yml` 会把 `conf/` 整体挂载为模板目录，再由 `entrypoint.sh` 渲染成运行配置。
-
-### 方式二：镜像内默认 COPY
-
-Dockerfile 也会把 `conf/` COPY 到镜像内模板目录，便于无挂载场景直接运行。
-
----
-
-## ⚙️ .env 参数化
-
-你可以在 `.env` 中统一修改：
-
-建议从 `.env.example` 复制后再本地调整，仓库默认不再跟踪 `.env`。
-
-- Hadoop 版本与镜像标签
-- Hadoop 下载镜像源与超时重试参数（`HADOOP_BASE_URL`、`HADOOP_FALLBACK_BASE_URLS`、`HADOOP_DOWNLOAD_*`）
-- Hadoop 安装包校验值（本地构建可用 `HADOOP_TARBALL_SHA512`，CI 发布建议使用分架构值）
-- 分架构 Hadoop 安装包校验值（`HADOOP_TARBALL_SHA512_AMD64`、`HADOOP_TARBALL_SHA512_ARM64`）
-- 可选分架构包名（`HADOOP_ARCHIVE_AMD64`、`HADOOP_ARCHIVE_ARM64`，默认回退 `hadoop-${HADOOP_VERSION}.tar.gz`）
-- AWS SDK bundle 修复版本（`AWS_SDK_BUNDLE_VERSION`，默认 `2.41.30`）
-- 端口绑定地址（`HOST_BIND_IP`）
-- 各 Web/RPC 端口
-- HDFS 副本数
-- NameNode 自动格式化开关
-- root 代理允许列表（`HADOOP_PROXYUSER_ROOT_HOSTS` / `HADOOP_PROXYUSER_ROOT_GROUPS`）
-- Daemon 运行用户与 SSH 注入开关（`HADOOP_DAEMON_USER` / `ENABLE_SSH_USER_ENV`）
-- DataNode 版本切换自动重置开关（`AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE`）
-- 健康检查与启动闸门参数
-- 共享 SSH 目录与命名卷名称
-- JVM 堆内存上限参数（`HADOOP_HEAPSIZE_MAX`、`HADOOP_NAMENODE_OPTS`、`YARN_RESOURCEMANAGER_OPTS` 等）
-
----
-
-## 📦 发布到 GitHub Packages (GHCR)
-
-仓库已内置工作流：`.github/workflows/publish-ghcr.yml`。
-
-发布前建议：
-
-- 在 GitHub 仓库 Settings -> Secrets and variables -> Actions 中设置（推荐放在 Secrets）：
-  - `HADOOP_TARBALL_SHA512_AMD64`（必填，64 位 Linux AMD 架构）
-  - `HADOOP_TARBALL_SHA512_ARM64`（必填，64 位 Linux ARM 架构）
-  - `HADOOP_ARCHIVE_AMD64`（可选，若 AMD64 包名不是默认 `hadoop-${HADOOP_VERSION}.tar.gz`）
-  - `HADOOP_ARCHIVE_ARM64`（可选，若 ARM64 包名不是默认 `hadoop-${HADOOP_VERSION}.tar.gz`）
-- 可选设置 `AWS_SDK_BUNDLE_VERSION`（如 `2.41.30`），用于覆盖 Docker 构建阶段替换的 AWS SDK bundle 版本。
-- 推送版本标签触发发布：
-
-```bash
-git tag v3.3.6
-git push origin v3.3.6
-```
-
-工作流会自动执行：
-
-- Build 本地镜像并用 Trivy 扫描高危漏洞
-- 构建并推送到 GHCR
-- 生成 SBOM 与 Provenance 证明
-- 使用 Cosign（OIDC 无密钥模式）对镜像摘要签名
-- 若缺少 `HADOOP_TARBALL_SHA512_AMD64` 或 `HADOOP_TARBALL_SHA512_ARM64`，工作流会直接失败
-
-### Trivy 豁免清单（教学实验环境）
-
-- 工作流会读取仓库根目录的 `.trivyignore` 作为漏洞豁免列表。
-- 本仓库已提供首版审计基线：`TRIVY_AUDIT_BASELINE.md`，包含扫描命令、证据与风险说明。
-- 更新方式建议：
-  1. 先重新生成 `trivy-local-scan.json`。
-  2. 仅把经过评审且可接受风险的 CVE/GHSA 写入 `.trivyignore`。
-  3. 在 `TRIVY_AUDIT_BASELINE.md` 记录原因与下一步升级计划。
-
-首次发布后如包默认非公开，可在 GitHub Packages 页面将可见性改为 Public。
-
-拉取示例：
-
-```bash
-docker pull ghcr.io/qianqiulp/hadoop-cluster-3.4.1:latest
-```
-
----
-
-## 🧠 NameNode 自动格式化逻辑
-
-`hadoop1`（NameNode）默认配置为：
-
-- `AUTO_FORMAT=true`
-- 仅当 `/hadoop/dfs/name/current` 不存在时执行格式化
-
-这意味着：
-
-- 首次启动会自动格式化
-- 已有元数据时不会重复格式化，避免误清空
-
-如果你确实要重置集群元数据：
-
-```bash
-docker compose down
-# 删除 NameNode 元数据命名卷后再启动
-docker volume rm hadoop1_name
-docker compose up -d
-```
-
----
-
-## 🔐 关于 SSH 与环境变量问题
-
-曾遇到容器间 SSH 执行命令时环境变量缺失的问题（例如 `JAVA_HOME` / `HADOOP_HOME` 不生效）。
-
-当前方案在 `entrypoint.sh` 中统一处理：
-
-- 运行时动态生成 SSH host key，并在共享卷中生成/复用同一套集群 SSH key
-- 将共享密钥同步到 `root` 与 `hadoop` 两个用户，兼容 Hadoop 批量启停脚本
-- 启动前写入 `/root/.ssh/environment`
-- 默认关闭 `PermitUserEnvironment`（仅当 `ENABLE_SSH_USER_ENV=true` 时开启）
-- 生成 `/etc/profile.d/hadoop.sh`
-
-这样可以显著降低跨容器 SSH 调用时“命令找不到/变量缺失”的概率。
-
----
-
-## 📘 手把手：进入容器、格式化 NameNode、启动 HDFS/YARN
-
-> 先说明：本项目默认在容器启动时自动拉起各角色 Daemon（NameNode/DataNode/RM/NM 等）。
-> 下面这组命令主要用于教学演示、手动重启或你临时停过服务后的恢复。
-
-### 1. 进入 Hadoop 容器
-
-```bash
-# 进入 NameNode 所在节点（hadoop1）
-docker exec -it hadoop1 bash
-
-# 可选：确认 Hadoop 命令可用
-hdfs version
-```
-
-### 2. 手动格式化 NameNode（谨慎）
-
-> 格式化会重置 HDFS 元数据。教学场景建议在“全新环境”下执行，或先 `docker compose down -v` 清空数据卷。
-
-在 `hadoop1` 容器里执行：
-
-```bash
-# 如 NameNode 正在运行，先停掉
-hdfs --daemon stop namenode
-
-# 执行格式化
-hdfs namenode -format -nonInteractive
-
-# 重新启动 NameNode
-hdfs --daemon start namenode
-```
-
-### 3. 集群启动 HDFS
-
-推荐在 `hadoop1`（NameNode 节点）执行：
-
-```bash
-start-dfs.sh
-```
-
-常用检查：
-
-```bash
-jps
-hdfs dfsadmin -report
-```
-
-### 4. 集群启动 YARN
-
-推荐在 `hadoop2`（ResourceManager 节点）执行：
-
-```bash
-# 先退出 hadoop1，再进入 hadoop2
-exit
-docker exec -it hadoop2 bash
-
-start-yarn.sh
-```
-
-常用检查：
-
-```bash
-jps
-yarn node -list
-```
-
-### 5. 一组最常用“启动后验证”命令
-
-在宿主机执行：
-
-```bash
-# 进程视角
-docker exec -it hadoop1 jps
-docker exec -it hadoop2 jps
-docker exec -it hadoop3 jps
-
-# Web UI
-# NameNode: http://localhost:9870
-# ResourceManager: http://localhost:8088
-```
-
-### 6. 对应停止命令（便于记忆）
-
-- 在 `hadoop2` 里停 YARN：`stop-yarn.sh`
-- 在 `hadoop1` 里停 HDFS：`stop-dfs.sh`
-
----
-
-## 🛠️ 常用运维命令
-
-```bash
-# 查看某节点日志
-docker logs -f hadoop1
-
-# 进入容器
-docker exec -it hadoop2 bash
-
-# 停止并移除容器网络（保留数据）
-docker compose down
-
-# 停止并移除容器网络和数据卷
-docker compose down -v
-```
-
----
-
-## 📄 License
-
-Apache License 2.0
+Apache-2.0，见 [LICENSE](LICENSE)。

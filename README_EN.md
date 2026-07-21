@@ -1,461 +1,123 @@
-# 🐳 Docker-Hadoop-Cluster
+# Hadoop Lab
 
-![Docker](https://img.shields.io/badge/Docker-Supported-blue.svg?logo=docker)
-![Hadoop](https://img.shields.io/badge/Hadoop-3.4.1-yellow.svg?logo=apache)
-![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
+[中文](README.md) · [English](README_EN.md)
 
-This project is designed for teaching and lab usage, and builds a 3-node Hadoop 3.4.1 fully distributed cluster with Docker Compose.
+**A repeatable learning path for Hadoop setup, service observation, MapReduce execution, node failure and recovery.**
 
-Key features:
+[![CI](https://github.com/QianQIUlp/docker-hadoop-cluster/actions/workflows/ci.yml/badge.svg)](https://github.com/QianQIUlp/docker-hadoop-cluster/actions/workflows/ci.yml)
+[![Hadoop](https://img.shields.io/badge/Hadoop-3.4.1-EF5B25?logo=apache)](https://hadoop.apache.org/)
+[![Image](https://img.shields.io/badge/GHCR-multi--arch-2496ED?logo=docker)](https://github.com/QianQIUlp/docker-hadoop-cluster/pkgs/container/hadoop-cluster-3.4.1)
+[![License](https://img.shields.io/badge/License-Apache--2.0-green.svg)](LICENSE)
 
-1. Hadoop configs are externalized in `conf/` for direct XML editing.
-2. A unified `entrypoint.sh` starts sshd and role-specific daemons automatically.
-3. `.env` provides centralized parameterization.
-4. Docker named volumes are used by default, and a shared SSH key volume enables inter-node trust.
-5. `.gitignore` filters runtime artifacts and temporary binaries.
-6. A GHCR publishing workflow is included with vulnerability scanning, image signing, and SBOM/provenance.
-7. The runtime baseline is upgraded to Temurin JRE 11, aligned with Hadoop 3.4.x recommendations.
+Hadoop Lab is a Hadoop 3.4.1 environment for classes, self-study and local experiments. A beginner gets one entrypoint for preflight checks, startup, a first MapReduce job, evidence-based status and safe recovery. Three-node mode is available when physical role placement becomes the lesson.
 
-> Note: Common troubleshooting tools are preinstalled (for example: vim, net-tools, ping) for easier labs and debugging.
+> [!IMPORTANT]
+> This is a teaching and local experimentation tool, not a production Hadoop platform. It does not provide Kerberos, NameNode HA, multi-host orchestration, backup, capacity planning or an operational SLA. Web and RPC ports bind to `127.0.0.1` by default.
 
----
+## First run
 
-## 🏗️ Cluster Roles
+Requirement: Docker Desktop, or Docker Engine with Compose v2. Windows users can run `hadoop-lab.ps1` from PowerShell; it uses the Bash shipped with Git for Windows.
 
-| Hostname | Core Roles |
-| :--- | :--- |
-| **hadoop1** | `NameNode` + `DataNode` |
-| **hadoop2** | `ResourceManager` + `NodeManager` + `DataNode` |
-| **hadoop3** | `SecondaryNameNode` + `JobHistoryServer` + `DataNode` |
+```bash
+git clone https://github.com/QianQIUlp/docker-hadoop-cluster.git
+cd docker-hadoop-cluster
 
-All containers start sshd, which keeps node-to-node communication and maintenance workflows straightforward.
+./hadoop-lab init
+./hadoop-lab doctor
+./hadoop-lab up standalone
+./hadoop-lab demo wordcount
+```
 
----
+Normal startup pulls the published multi-architecture GHCR image. Build locally only after changing the Dockerfile, entrypoint or image-bundled configuration:
 
-## 📁 Project Layout
+```bash
+./hadoop-lab up standalone --build
+```
+
+## Two learning modes
+
+| Mode | Best for | Layout | Start |
+|---|---|---|---|
+| `standalone` | first contact, lower-memory machines, quick demos | six Hadoop daemons in one container | `./hadoop-lab up standalone` |
+| `cluster` | node roles, SSH and DataNode failure | three containers model a distributed cluster | `./hadoop-lab up cluster` |
+
+Cluster placement:
+
+| Node | Hadoop services |
+|---|---|
+| `hadoop1` | NameNode, DataNode |
+| `hadoop2` | ResourceManager, NodeManager, DataNode |
+| `hadoop3` | SecondaryNameNode, JobHistoryServer, DataNode |
+
+Both modes use the same image. Runtime role settings select the daemon set.
+
+## One operational entrypoint
 
 ```text
-docker-hadoop-cluster/
-├── conf/
-│   ├── core-site.xml
-│   ├── hdfs-site.xml
-│   ├── yarn-site.xml
-│   ├── mapred-site.xml
-│   └── workers
-├── examples/
-│   └── run-wordcount.sh          # MapReduce WordCount demonstration tutorial script
-├── .env.example
-├── data/                         # optional: only used if you switch back to bind mounts
-│   ├── hadoop1/
-│   ├── hadoop2/
-│   └── hadoop3/
-├── docker-compose.yml
-├── docker-compose.secure.yml
-├── docker-compose.standalone.yml # Added: single-container pseudo-distributed setup
-├── Dockerfile
-├── entrypoint.sh
-├── scripts/
-│   ├── up.sh
-│   ├── shell.sh                  # Added: container login shell shortcut
-│   └── status.sh                 # Added: cluster daemon status checker
-├── README.md
-└── README_EN.md
+./hadoop-lab init                         create .env without overwriting it
+./hadoop-lab doctor [MODE]                check Docker, memory, ports and Compose
+./hadoop-lab up [MODE]                    pull, start and wait for health
+./hadoop-lab status [--json]              verify containers and expected daemons
+./hadoop-lab open [--launch]              show or open the three observation UIs
+./hadoop-lab shell [NODE]                 enter a node as the non-root hadoop user
+./hadoop-lab logs [NODE] [--tail N]       inspect cluster or node logs
+./hadoop-lab diagnose                     create a redacted evidence bundle
+./hadoop-lab stop [MODE|all]              stop while preserving data
+./hadoop-lab reset MODE                   recreate runtime while preserving data
+./hadoop-lab reset MODE --data            remove that mode's volumes after confirmation
 ```
 
----
+`doctor`, `status` and `lesson check` exit non-zero on failure, so teachers and CI can use the same evidence as students. Legacy helper scripts remain as compatibility wrappers.
 
-## 🌐 Port Mapping (Default)
-
-Ports are bound to `127.0.0.1` by default (controlled by `HOST_BIND_IP`) to avoid accidental public exposure.
-
-- HDFS NameNode UI: <http://localhost:9870>
-- HDFS RPC: `9000`
-- YARN ResourceManager UI: <http://localhost:8088>
-- SecondaryNameNode UI: <http://localhost:9868>
-- JobHistory UI: <http://localhost:19888>
-
-All defaults can be adjusted in `.env`.
-
----
-
-## 🚀 Quick Start
-
-### 1. Clone repository
+## Seven guided labs
 
 ```bash
-git clone git@github.com:YourUsername/docker-hadoop-cluster.git
-cd docker-hadoop-cluster
-cp .env.example .env
+./hadoop-lab lesson list
+./hadoop-lab lesson start 00-first-run
+./hadoop-lab lesson check 00-first-run
 ```
 
-### 1.1 Pull Public Image Directly (No Local Build)
+The path covers first-run observation, HDFS basics, WordCount, YARN, three-node roles, node failure/recovery and externalized configuration. Each lesson has an objective, expected evidence, explanation, automated check and narrow reset. See [`labs/`](labs/README.md).
 
-If you just want to try the cluster quickly, you can pull the public GHCR image directly:
+The WordCount demo replaces only `/labs/wordcount/output`; it never deletes a generic `/output` path that may belong to a student.
+
+## Observe and recover
 
 ```bash
-docker pull ghcr.io/qianqiulp/hadoop-cluster-3.4.1:latest
+./hadoop-lab status
+./hadoop-lab logs hadoop-standalone
+./hadoop-lab diagnose
 ```
 
-To pin a specific release tag:
+Status verifies Docker health and the JVM processes expected on each role. The diagnostic archive contains versions, selected state, status output and recent logs, while excluding `.env` and full container environment values. Review it before sharing.
+
+Stopping preserves named volumes. Only `reset MODE --data` deletes the selected mode's declared volumes, with interactive confirmation or explicit `--yes`.
+
+## Observation surfaces
+
+- NameNode / HDFS: <http://localhost:9870>
+- ResourceManager / YARN: <http://localhost:8088>
+- SecondaryNameNode: <http://localhost:9868>
+- MapReduce JobHistory: <http://localhost:19888>
+
+## Documentation
+
+- [Architecture and boundaries](docs/architecture.md)
+- [Configuration](docs/configuration.md)
+- [Operations and recovery](docs/operations.md)
+- [Troubleshooting guide](docs/troubleshooting.md)
+- [90-minute teaching guide](docs/teaching-guide.md)
+- [Portfolio source material](docs/project-showcase.md)
+
+## Development verification
 
 ```bash
-docker pull ghcr.io/qianqiulp/hadoop-cluster-3.4.1:v3.4.7
+shellcheck hadoop-lab scripts/*.sh examples/*.sh
+bash tests/test-cli.sh
+docker compose --env-file .env.example -f docker-compose.standalone.yml config --quiet
+docker compose --env-file .env.example -f docker-compose.yml config --quiet
 ```
 
-Then set image source in `.env` and skip build:
+CI starts standalone mode, waits for health, runs WordCount and verifies HDFS output. A cluster smoke test checks three containers and their role daemons. Image publishing retains multi-architecture builds, Trivy, SBOM, provenance and Cosign signing.
 
-```bash
-IMAGE_NAME=ghcr.io/qianqiulp/hadoop-cluster-3.4.1
-IMAGE_TAG=latest
-```
-
-Start with:
-
-```bash
-docker compose up -d --no-build
-```
-
-If pull returns `denied`, confirm the GHCR package visibility is set to Public.
-
-### 2. Build and start cluster
-
-```bash
-./scripts/up.sh
-```
-
-This command now does two things:
-
-- Builds the shared core image only once (triggered by hadoop1), while hadoop2/hadoop3 reuse the same image tag.
-- Cleans dangling images and stale tags related to this repository after startup, so the local image set stays close to a single required runtime image.
-
-By default:
-
-- Runtime data is persisted in Docker named volumes (avoiding bind-mount I/O penalties on macOS/WSL2).
-- All three nodes reuse one shared SSH keypair volume, so scripts like `start-dfs.sh` and `start-yarn.sh` can SSH across nodes without password prompts.
-
-If you still prefer native compose directly, you can run:
-
-```bash
-docker compose up -d --build
-```
-
-Containers will run role-based initialization automatically after startup.
-
-If you want to apply extra resource hardening:
-
-```bash
-./scripts/up.sh --secure
-```
-
-### 2.1 Build Time Tuning and Verbose Logs
-
-The Dockerfile now includes these default optimizations:
-
-- Prefer a faster mirror (`repo.huaweicloud.com`) first, then fall back to Apache mirrors.
-- Use no hard total download timeout by default (`HADOOP_DOWNLOAD_MAX_TIME=0`) so slow links do not fail mid-transfer.
-- Fail and retry only when speed stays too low (default `< 1KB/s` for `30s`) to avoid infinite hangs.
-- Print per-mirror download start/success/failure with elapsed time.
-
-To get full step-by-step build output, use:
-
-```bash
-docker build --progress=plain \
-  --build-arg HADOOP_TARBALL_SHA512=<official-sha512> \
-  -t dockder-hadoop-cluster:dev .
-```
-
-You can also tune behavior per environment:
-
-```bash
-docker build --progress=plain \
-  --build-arg HADOOP_BASE_URL=https://dlcdn.apache.org/apache/hadoop/common \
-  --build-arg HADOOP_DOWNLOAD_RETRY=1 \
-  --build-arg HADOOP_DOWNLOAD_MAX_TIME=1200 \
-  --build-arg HADOOP_TARBALL_SHA512=<official-sha512> \
-  -t dockder-hadoop-cluster:dev .
-```
-
-### 3. Verify container and daemon status
-
-```bash
-docker compose ps
-docker exec -it hadoop1 jps
-docker exec -it hadoop2 jps
-docker exec -it hadoop3 jps
-```
-
-### 4. Lightweight Dev/Lab: Standalone Pseudo-Distributed Mode
-
-If you are learning Hadoop, doing a quick demo, or running on a resource-constrained computer, this project provides a **Lightweight Standalone Pseudo-Distributed Mode**. All Hadoop core daemons (NameNode, SecondaryNameNode, DataNode, ResourceManager, NodeManager, and JobHistoryServer) run within a single consolidated container.
-
-#### 4.1 Start the Standalone Cluster
-```bash
-docker compose -f docker-compose.standalone.yml up -d
-```
-On boot, the container will perform auto-formatting and **automatically pre-load test datasets into HDFS** (including `/input/hadoop-intro.txt` and `/input/quotes.txt`).
-
-#### 4.2 Built-in Onboarding & Helper Utilities
-To lower the barrier to entry and simplify daily operations, we added several management utilities in `scripts/`:
-- **Check Cluster Health and Daemons**:
-  ```bash
-  ./scripts/status.sh
-  ```
-  This script automatically scans active Hadoop containers, runs `jps` to output running Java daemons on each node, prints the HDFS storage report, and lists YARN workers.
-- **One-click Interactive Container Shell**:
-  ```bash
-  ./scripts/shell.sh
-  ```
-  This connects you directly to the active master/standalone container shell running as the secure, non-root `hadoop` user with all paths pre-configured.
-
-#### 4.3 MapReduce WordCount Tutorial (Instant Gratification)
-We pre-loaded sample text data and created an end-to-end MapReduce execution script. Run directly on your host terminal:
-```bash
-./examples/run-wordcount.sh
-```
-The script automatically:
-1. Verifies input datasets pre-loaded in HDFS (under `/input`).
-2. Cleans up any prior MapReduce outputs (`/output`).
-3. Dynamically locates the container's built-in examples JAR and submits the job.
-4. Reads the HDFS output and prints the Top 20 words sorted by count.
-
----
-
-## ⚙️ Configuration Workflow
-
-### Option A: Edit `conf/` directly (recommended)
-
-Update only these files:
-
-- `conf/core-site.xml`
-- `conf/hdfs-site.xml`
-- `conf/yarn-site.xml`
-- `conf/mapred-site.xml`
-- `conf/workers`
-
-`docker-compose.yml` mounts the whole `conf/` directory as templates, and `entrypoint.sh` renders runtime config files on startup.
-
-### Option B: Build-time defaults via COPY
-
-Dockerfile also copies `conf/` into the image template directory, so it can run without host mounts when needed.
-
----
-
-## ⚙️ .env Parameterization
-
-You can centrally control in `.env`:
-
-Start from `.env.example`, then adjust local values. `.env` is no longer tracked by git.
-
-- Hadoop version and image tag
-- Hadoop download mirrors and timeout/retry controls (`HADOOP_BASE_URL`, `HADOOP_FALLBACK_BASE_URLS`, `HADOOP_DOWNLOAD_*`)
-- Hadoop tarball checksum (`HADOOP_TARBALL_SHA512` can be used for local builds; per-arch values are recommended for CI publish)
-- Per-architecture checksums (`HADOOP_TARBALL_SHA512_AMD64`, `HADOOP_TARBALL_SHA512_ARM64`)
-- Optional per-architecture archive names (`HADOOP_ARCHIVE_AMD64`, `HADOOP_ARCHIVE_ARM64`, default fallback is `hadoop-${HADOOP_VERSION}.tar.gz`)
-- AWS SDK bundle patch version (`AWS_SDK_BUNDLE_VERSION`, default `2.41.30`)
-- bind address for published ports (`HOST_BIND_IP`)
-- Service RPC/Web ports
-- HDFS replication factor
-- NameNode auto-format switch
-- root proxy allowlist (`HADOOP_PROXYUSER_ROOT_HOSTS` / `HADOOP_PROXYUSER_ROOT_GROUPS`)
-- daemon user and SSH env injection switch (`HADOOP_DAEMON_USER` / `ENABLE_SSH_USER_ENV`)
-- DataNode auto-reset on version change (`AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE`)
-- Healthcheck and startup-gate behavior
-- Shared SSH directory and named-volume names
-- JVM heap limits (`HADOOP_HEAPSIZE_MAX`, `HADOOP_NAMENODE_OPTS`, `YARN_RESOURCEMANAGER_OPTS`, etc.)
-
----
-
-## 📦 Publish to GitHub Packages (GHCR)
-
-The repository includes `.github/workflows/publish-ghcr.yml`.
-
-Recommended before publishing:
-
-- In GitHub Settings -> Secrets and variables -> Actions, set (Secrets are recommended):
-  - `HADOOP_TARBALL_SHA512_AMD64` (required for Linux AMD64)
-  - `HADOOP_TARBALL_SHA512_ARM64` (required for Linux ARM64)
-  - `HADOOP_ARCHIVE_AMD64` (optional if AMD64 archive name differs from default `hadoop-${HADOOP_VERSION}.tar.gz`)
-  - `HADOOP_ARCHIVE_ARM64` (optional if ARM64 archive name differs from default `hadoop-${HADOOP_VERSION}.tar.gz`)
-- Optionally set `AWS_SDK_BUNDLE_VERSION` (for example `2.41.30`) to override the AWS SDK bundle version replaced during Docker build.
-- Push a version tag to trigger publishing:
-
-```bash
-git tag v3.3.6
-git push origin v3.3.6
-```
-
-The workflow will automatically:
-
-- build a local image and scan HIGH/CRITICAL vulnerabilities with Trivy
-- build and push to GHCR
-- emit SBOM and provenance attestations
-- sign image digest with keyless Cosign (OIDC)
-- fail fast when `HADOOP_TARBALL_SHA512_AMD64` or `HADOOP_TARBALL_SHA512_ARM64` is missing
-
-### Trivy Ignore List for Lab Environments
-
-- The workflow reads `.trivyignore` from the repository root as the vulnerability exception list.
-- This repository now includes an auditable baseline file: `TRIVY_AUDIT_BASELINE.md` with scan commands, evidence and risk context.
-- Recommended maintenance flow:
-  1. Regenerate `trivy-local-scan.json` from a fresh local scan.
-  2. Add only reviewed and accepted-risk CVE/GHSA IDs to `.trivyignore`.
-  3. Record rationale and follow-up upgrade plans in `TRIVY_AUDIT_BASELINE.md`.
-
-After the first publish, switch package visibility to Public in GitHub Packages if needed.
-
-Pull example:
-
-```bash
-docker pull ghcr.io/qianqiulp/hadoop-cluster-3.4.1:latest
-```
-
----
-
-## 🧠 NameNode Auto-Format Logic
-
-`hadoop1` is configured with:
-
-- `AUTO_FORMAT=true`
-- Format only if `/hadoop/dfs/name/current` does not exist
-
-That means:
-
-- First startup formats NameNode metadata automatically
-- Existing metadata is preserved on later restarts
-
-If you need a full metadata reset:
-
-```bash
-docker compose down
-# Remove the NameNode metadata volume
-docker volume rm hadoop1_name
-docker compose up -d
-```
-
----
-
-## 🔐 SSH Environment Variable Fix
-
-A common issue in containerized Hadoop setups is missing variables across SSH sessions (`JAVA_HOME`, `HADOOP_HOME`, etc.).
-
-This project now handles it in `entrypoint.sh` by:
-
-- generating SSH host keys at runtime and generating/reusing one shared cluster SSH keypair in a named volume
-- syncing that shared keypair into both `root` and `hadoop` user SSH dirs for Hadoop batch scripts
-- writing `/root/.ssh/environment`
-- keeping `PermitUserEnvironment` disabled by default (enable only with `ENABLE_SSH_USER_ENV=true`)
-- generating `/etc/profile.d/hadoop.sh`
-
-This greatly reduces cross-node SSH failures caused by incomplete runtime environments.
-
----
-
-## 📘 Step-by-Step: Enter Container, Format NameNode, Start HDFS/YARN
-
-> Note first: this project starts role daemons automatically when containers boot (NameNode/DataNode/RM/NM, etc.).
-> The commands below are mainly for learning, manual restart, or recovery after you stopped services yourself.
-
-### 1. Enter a Hadoop container
-
-```bash
-# Enter NameNode node (hadoop1)
-docker exec -it hadoop1 bash
-
-# Optional: verify Hadoop CLI is available
-hdfs version
-```
-
-### 2. Format NameNode manually (be careful)
-
-> Formatting resets HDFS metadata. In lab scenarios, run this on a fresh environment, or clear volumes first with `docker compose down -v`.
-
-Run inside `hadoop1`:
-
-```bash
-# If NameNode is already running, stop it first
-hdfs --daemon stop namenode
-
-# Format NameNode metadata
-hdfs namenode -format -nonInteractive
-
-# Start NameNode again
-hdfs --daemon start namenode
-```
-
-### 3. Start HDFS cluster
-
-Recommended on `hadoop1` (NameNode node):
-
-```bash
-start-dfs.sh
-```
-
-Quick checks:
-
-```bash
-jps
-hdfs dfsadmin -report
-```
-
-### 4. Start YARN cluster
-
-Recommended on `hadoop2` (ResourceManager node):
-
-```bash
-# Leave hadoop1 shell, then enter hadoop2
-exit
-docker exec -it hadoop2 bash
-
-start-yarn.sh
-```
-
-Quick checks:
-
-```bash
-jps
-yarn node -list
-```
-
-### 5. Most-used post-start verification commands
-
-Run on host:
-
-```bash
-# Process-level view
-docker exec -it hadoop1 jps
-docker exec -it hadoop2 jps
-docker exec -it hadoop3 jps
-
-# Web UIs
-# NameNode: http://localhost:9870
-# ResourceManager: http://localhost:8088
-```
-
-### 6. Matching stop commands (easy to remember)
-
-- Stop YARN in `hadoop2`: `stop-yarn.sh`
-- Stop HDFS in `hadoop1`: `stop-dfs.sh`
-
----
-
-## 🛠️ Useful Operations
-
-```bash
-# Follow container logs
-docker logs -f hadoop1
-
-# Enter a container shell
-docker exec -it hadoop2 bash
-
-# Stop and remove containers/network (keep data)
-docker compose down
-
-# Stop and remove containers/network/volumes
-docker compose down -v
-```
-
----
-
-## 📄 License
-
-Apache License 2.0
+See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), [CHANGELOG.md](CHANGELOG.md) and the [Apache-2.0 license](LICENSE).

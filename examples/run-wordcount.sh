@@ -5,6 +5,27 @@
 # =====================================================================
 set -euo pipefail
 
+OUTPUT_PATH="/labs/wordcount/output"
+while (( $# > 0 )); do
+    case "$1" in
+        --output)
+            OUTPUT_PATH="${2:-}"
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            echo "Usage: $0 [--output HDFS_PATH]" >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
+
+if [[ -z "${OUTPUT_PATH}" ]] || [[ "${OUTPUT_PATH}" != /* ]]; then
+    echo "Error: --output must be an absolute HDFS path." >&2
+    exit 2
+fi
+
 # Determine which container is running
 CONTAINER_NAME=""
 if docker ps --format '{{.Names}}' | grep -q "^hadoop-standalone$"; then
@@ -38,27 +59,27 @@ docker exec -u hadoop "${CONTAINER_NAME}" hdfs dfs -ls -R /input || {
 
 echo ""
 echo "--------------------------------------------------"
-echo " Step 2: Cleaning up previous output directory"
+echo " Step 2: Preparing an isolated lab output directory"
 echo "--------------------------------------------------"
-# Ensure clean run by removing any stale /output
-docker exec -u hadoop "${CONTAINER_NAME}" hdfs dfs -rm -r -f /output >/dev/null 2>&1 || true
-echo "Output directory '/output' in HDFS cleaned up."
+# Only the dedicated lab path is replaced. Unrelated student data is untouched.
+docker exec -u hadoop "${CONTAINER_NAME}" hdfs dfs -rm -r -f "${OUTPUT_PATH}" >/dev/null 2>&1 || true
+echo "Lab output path prepared: ${OUTPUT_PATH}"
 
 echo ""
 echo "--------------------------------------------------"
 echo " Step 3: Submitting MapReduce WordCount Job"
 echo "--------------------------------------------------"
 # Locate the mapreduce examples jar dynamically inside the container and submit
-docker exec -u hadoop "${CONTAINER_NAME}" bash -l -c '
+docker exec -u hadoop -e LAB_OUTPUT_PATH="${OUTPUT_PATH}" "${CONTAINER_NAME}" bash -l -c '
     JAR_PATH=$(find ${HADOOP_HOME}/share/hadoop/mapreduce -name "hadoop-mapreduce-examples-*.jar" | head -n 1)
     if [ -z "$JAR_PATH" ]; then
         echo "Error: mapreduce examples jar not found under ${HADOOP_HOME}."
         exit 1
     fi
     echo "Found MapReduce Examples JAR: $JAR_PATH"
-    echo "Running command: hadoop jar $JAR_PATH wordcount /input /output"
+    echo "Running command: hadoop jar $JAR_PATH wordcount /input $LAB_OUTPUT_PATH"
     echo "--------------------------------------------------"
-    hadoop jar "$JAR_PATH" wordcount /input /output
+    hadoop jar "$JAR_PATH" wordcount /input "$LAB_OUTPUT_PATH"
 '
 
 echo ""
@@ -66,16 +87,17 @@ echo "--------------------------------------------------"
 echo " Step 4: Printing Results (Top 20 words by count)"
 echo "--------------------------------------------------"
 # Fetch output file from HDFS and sort/print top results nicely
-docker exec -u hadoop "${CONTAINER_NAME}" bash -l -c '
-    echo "Output files in /output:"
-    hdfs dfs -ls /output
+docker exec -u hadoop -e LAB_OUTPUT_PATH="${OUTPUT_PATH}" "${CONTAINER_NAME}" bash -l -c '
+    echo "Output files in $LAB_OUTPUT_PATH:"
+    hdfs dfs -ls "$LAB_OUTPUT_PATH"
     echo ""
     echo "Results Preview (part-r-00000):"
     echo "----------------------------------"
     # Sort results numerically (highest word counts first)
-    hdfs dfs -cat /output/part-r-00000 | sort -k2 -n -r | head -n 20
+    hdfs dfs -cat "$LAB_OUTPUT_PATH"/part-r-00000 | sort -k2 -n -r | head -n 20
 '
 echo "--------------------------------------------------"
 echo "Success! To view the full output, run:"
-echo "  docker exec -it -u hadoop ${CONTAINER_NAME} hdfs dfs -cat /output/part-r-00000"
+echo "  docker exec -it -u hadoop ${CONTAINER_NAME} hdfs dfs -cat ${OUTPUT_PATH}/part-r-00000"
+echo "Observe the completed application in YARN: http://localhost:8088"
 echo "=================================================="

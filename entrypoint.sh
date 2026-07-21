@@ -21,9 +21,10 @@ AUTO_FORMAT="${AUTO_FORMAT:-false}"
 WAIT_FOR_NAMENODE_RETRIES="${WAIT_FOR_NAMENODE_RETRIES:-60}"
 WAIT_FOR_NAMENODE_INTERVAL="${WAIT_FOR_NAMENODE_INTERVAL:-2}"
 HADOOP_DAEMON_USER="${HADOOP_DAEMON_USER:-hadoop}"
+HADOOP_NICENESS="${HADOOP_NICENESS:-10}"
 ENABLE_SSH_USER_ENV="${ENABLE_SSH_USER_ENV:-false}"
 ROOT_DAEMON_ENV="HDFS_NAMENODE_USER=root HDFS_DATANODE_USER=root HDFS_SECONDARYNAMENODE_USER=root YARN_RESOURCEMANAGER_USER=root YARN_NODEMANAGER_USER=root MAPRED_HISTORYSERVER_USER=root"
-AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE="${AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE:-true}"
+AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE="${AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE:-false}"
 SSH_SHARED_DIR="${SSH_SHARED_DIR:-/shared-ssh}"
 
 # ----------------------------------------------------------------------
@@ -123,18 +124,18 @@ ensure_ssh_runtime_env() {
     local pub_key
     local ssh_dir
     local sync_hadoop_ssh
-    local owner
-    local group
 
     # Ensure runtime directories for sshd and ssh key materials.
     # 确保 sshd 与 ssh 密钥运行目录存在。
     mkdir -p /run/sshd /root/.ssh "${SSH_SHARED_DIR}"
-    chmod 700 /root/.ssh "${SSH_SHARED_DIR}"
+    chmod 700 /root/.ssh
+    chgrp hadoop "${SSH_SHARED_DIR}" >/dev/null 2>&1 || true
+    chmod 750 "${SSH_SHARED_DIR}"
 
     sync_hadoop_ssh="false"
     if id -u hadoop >/dev/null 2>&1 && mkdir -p /home/hadoop/.ssh >/dev/null 2>&1; then
         chmod 700 /home/hadoop/.ssh >/dev/null 2>&1 || true
-        if [[ -w /home/hadoop/.ssh ]]; then
+        if su -m -s /bin/bash -c 'test -w /home/hadoop/.ssh' hadoop >/dev/null 2>&1; then
             sync_hadoop_ssh="true"
         else
             log "Skip syncing /home/hadoop/.ssh: not writable under current dropped capabilities"
@@ -187,6 +188,8 @@ ensure_ssh_runtime_env() {
     fi
     chmod 600 "${shared_private_key}" "${shared_authorized_keys}"
     chmod 644 "${shared_public_key}"
+    chgrp hadoop "${shared_private_key}" "${shared_public_key}" "${shared_authorized_keys}" >/dev/null 2>&1 || true
+    chmod 640 "${shared_private_key}" "${shared_authorized_keys}"
 
     # Sync shared keys to root and hadoop users for start-*.sh compatibility.
     # 将共享密钥同步到 root 与 hadoop 用户目录，兼容 start-*.sh 场景。
@@ -195,26 +198,30 @@ ensure_ssh_runtime_env() {
             continue
         fi
 
-        cp -f "${shared_private_key}" "${ssh_dir}/id_rsa"
-        cp -f "${shared_public_key}" "${ssh_dir}/id_rsa.pub"
-        cp -f "${shared_authorized_keys}" "${ssh_dir}/authorized_keys"
+        if [[ "${ssh_dir}" == "/home/hadoop/.ssh" ]]; then
+            su -m -s /bin/bash -c "cp -f '${shared_private_key}' '${ssh_dir}/id_rsa' && cp -f '${shared_public_key}' '${ssh_dir}/id_rsa.pub' && cp -f '${shared_authorized_keys}' '${ssh_dir}/authorized_keys'" hadoop
+        else
+            cp -f "${shared_private_key}" "${ssh_dir}/id_rsa"
+            cp -f "${shared_public_key}" "${ssh_dir}/id_rsa.pub"
+            cp -f "${shared_authorized_keys}" "${ssh_dir}/authorized_keys"
+        fi
 
-        cat > "${ssh_dir}/config" <<EOF
+        if [[ "${ssh_dir}" == "/home/hadoop/.ssh" ]]; then
+            su -m -s /bin/bash -c "printf '%s\n' 'Host *' '    StrictHostKeyChecking accept-new' > '${ssh_dir}/config'" hadoop
+        else
+            cat > "${ssh_dir}/config" <<EOF
 Host *
     StrictHostKeyChecking accept-new
 EOF
-
-        chmod 600 "${ssh_dir}/id_rsa" "${ssh_dir}/authorized_keys" "${ssh_dir}/config"
-        chmod 644 "${ssh_dir}/id_rsa.pub"
+        fi
 
         if [[ "${ssh_dir}" == "/root/.ssh" ]]; then
-            owner="root"
-            group="root"
+            chmod 600 "${ssh_dir}/id_rsa" "${ssh_dir}/authorized_keys" "${ssh_dir}/config"
+            chmod 644 "${ssh_dir}/id_rsa.pub"
+            chown -R root:root "${ssh_dir}" >/dev/null 2>&1 || true
         else
-            owner="hadoop"
-            group="hadoop"
+            su -m -s /bin/bash -c "chmod 600 '${ssh_dir}/id_rsa' '${ssh_dir}/authorized_keys' '${ssh_dir}/config' && chmod 644 '${ssh_dir}/id_rsa.pub'" hadoop
         fi
-        chown -R "${owner}:${group}" "${ssh_dir}" >/dev/null 2>&1 || true
     done
 
     # Export variables into SSH session environment.
@@ -255,6 +262,9 @@ EOF
 
 run_as_daemon_user() {
     local cmd="$1"
+    local runtime_env
+    printf -v runtime_env 'export JAVA_HOME=%q HADOOP_HOME=%q HADOOP_CONF_DIR=%q PATH=%q HADOOP_NICENESS=%q' \
+        "${JAVA_HOME}" "${HADOOP_HOME}" "${HADOOP_CONF_DIR}" "${PATH}" "${HADOOP_NICENESS}"
     if [[ "${HADOOP_DAEMON_USER}" == "root" ]]; then
         bash -lc "${ROOT_DAEMON_ENV} ${cmd}"
         return
@@ -264,7 +274,8 @@ run_as_daemon_user() {
         bash -lc "${cmd}"
         return
     fi
-    su -s /bin/bash -c "${cmd}" "${HADOOP_DAEMON_USER}"
+    # su may replace PATH even in preserve mode; inject the exact runtime explicitly.
+    su -s /bin/bash -c "${runtime_env}; ${cmd}" "${HADOOP_DAEMON_USER}"
 }
 
 start_sshd() {
@@ -294,10 +305,12 @@ prepare_runtime_dirs() {
     mkdir -p \
         "${runtime_dirs[@]}"
 
-    # With dropped Linux capabilities, recursive chown can fail on bind-mounts.
-    # Use group+mode alignment first, then verify daemon-user writability.
-    # 在能力裁剪下 bind-mount 上 chown 可能失败，优先调整组与权限位。
+    # Named-volume roots are initially owned by root. Hadoop's DiskChecker must
+    # own its storage directory because it validates/chmods the path itself.
     for dir in "${runtime_dirs[@]}"; do
+        if [[ "${HADOOP_DAEMON_USER}" != "root" ]]; then
+            chown -R "${HADOOP_DAEMON_USER}:${HADOOP_DAEMON_USER}" "${dir}" >/dev/null 2>&1 || true
+        fi
         chgrp -R "${HADOOP_DAEMON_USER}" "${dir}" >/dev/null 2>&1 || true
         chmod -R ug+rwX "${dir}" >/dev/null 2>&1 || true
 
@@ -381,15 +394,21 @@ format_namenode_if_needed() {
 
     if [[ "${AUTO_FORMAT}" == "true" ]]; then
         if [[ ! -d "${current_dir}" ]]; then
+            # A marker may remain when an earlier attempt rendered the wrong
+            # config path. It is not Hadoop metadata and would make the
+            # formatter reject an otherwise empty directory.
+            if find "${HDFS_NAMENODE_NAME_DIR}" -mindepth 1 -maxdepth 1 ! -name '.formatted_by_image_version' -print -quit | grep -q .; then
+                log "ERROR: NameNode current/ is missing but the metadata directory contains unknown files; refusing to erase them"
+                log "Inspect the volume or use the confirmed host-side data reset for disposable lab state"
+                return 1
+            fi
+            rm -f "${version_marker}"
             log "NameNode metadata not found, formatting..."
             run_as_daemon_user "hdfs namenode -format -nonInteractive"
             printf '%s\n' "${HADOOP_VERSION}" > "${version_marker}" || true
         elif [[ ! -f "${version_marker}" ]] || [[ "$(cat "${version_marker}" 2>/dev/null || true)" != "${HADOOP_VERSION}" ]]; then
-            log "Detected metadata from different/unknown image version, reformatting NameNode metadata"
-            rm -rf "${HDFS_NAMENODE_NAME_DIR:?}"/*
-            mkdir -p "${HDFS_NAMENODE_NAME_DIR}"
-            run_as_daemon_user "hdfs namenode -format -nonInteractive"
-            printf '%s\n' "${HADOOP_VERSION}" > "${version_marker}" || true
+            log "WARNING: NameNode metadata version is different or unknown; preserving it instead of formatting"
+            log "Use './hadoop-lab reset <mode> --data' on the host only when this lab data is disposable"
         else
             log "NameNode metadata exists, skipping format"
         fi
@@ -433,30 +452,33 @@ preload_test_data() {
             if hdfs dfsadmin -safemode get 2>/dev/null | grep -q "Safe mode is OFF"; then
                 log "HDFS is ready and out of safemode. Preloading test data..."
                 
-                # Check if data already exists in HDFS to avoid duplicate preloading on restarts
-                if ! run_as_daemon_user "hdfs dfs -test -e /input" >/dev/null 2>&1; then
-                    log "Creating /input directory in HDFS"
-                    run_as_daemon_user "hdfs dfs -mkdir -p /input"
-                    
-                    # Create some interesting test files in HDFS
-                    log "Writing sample text files to HDFS /input"
-                    
-                    # File 1: Words of wisdom (Hadoop introduction)
+                log "Ensuring the namespaced sample files exist in HDFS /input"
+                run_as_daemon_user "hdfs dfs -mkdir -p /input"
+
+                if ! run_as_daemon_user "hdfs dfs -test -e /input/hadoop-intro.txt" >/dev/null 2>&1; then
                     run_as_daemon_user "printf 'Hadoop is an open-source software framework for storing data and running applications on clusters of commodity hardware. It provides massive storage for any kind of data, enormous processing power and the ability to handle virtually limitless concurrent tasks or jobs.\n' | hdfs dfs -put - /input/hadoop-intro.txt"
-                    
-                    # File 2: Simple poem / quotes
-                    run_as_daemon_user "printf 'Hello Hadoop World\nApache Hadoop and Apache Spark are powerful big data tools\nBig data is rich in insights\nMuscle memory is built by practice\nPractice makes perfect\n' | hdfs dfs -put - /input/quotes.txt"
-                    
-                    log "Test data preloading completed successfully!"
-                else
-                    log "/input already exists in HDFS, skipping preload"
                 fi
+                if ! run_as_daemon_user "hdfs dfs -test -e /input/quotes.txt" >/dev/null 2>&1; then
+                    run_as_daemon_user "printf 'Hello Hadoop World\nApache Hadoop and Apache Spark are powerful big data tools\nBig data is rich in insights\nMuscle memory is built by practice\nPractice makes perfect\n' | hdfs dfs -put - /input/quotes.txt"
+                fi
+                log "Test data preloading completed successfully"
                 return 0
             fi
             sleep 2
         done
         log "Timed out waiting for HDFS to exit safemode, test data preload skipped"
     ) &
+}
+
+start_hadoop_daemon() {
+    local family="$1"
+    local daemon="$2"
+    log "Starting ${daemon}"
+    if ! run_as_daemon_user "${family} --daemon start ${daemon}"; then
+        log "ERROR: ${daemon} launcher failed; printing recent Hadoop log evidence"
+        find "${HADOOP_LOG_DIR}" -maxdepth 1 -type f -name "*${daemon}*" -print -exec tail -n 60 {} \; 2>/dev/null || true
+        return 1
+    fi
 }
 
 start_role_daemons() {
@@ -466,38 +488,38 @@ start_role_daemons() {
         namenode)
             format_namenode_if_needed
             log "Starting NameNode and local DataNode"
-            run_as_daemon_user "hdfs --daemon start namenode"
-            run_as_daemon_user "hdfs --daemon start datanode"
+            start_hadoop_daemon hdfs namenode
+            start_hadoop_daemon hdfs datanode
             if [[ "${PRELOAD_TEST_DATA:-false}" == "true" ]]; then
                 preload_test_data
             fi
             ;;
         resourcemanager)
             log "Starting ResourceManager, NodeManager and local DataNode"
-            run_as_daemon_user "hdfs --daemon start datanode"
-            run_as_daemon_user "yarn --daemon start resourcemanager"
-            run_as_daemon_user "yarn --daemon start nodemanager"
+            start_hadoop_daemon hdfs datanode
+            start_hadoop_daemon yarn resourcemanager
+            start_hadoop_daemon yarn nodemanager
             ;;
         secondary)
             log "Starting SecondaryNameNode, JobHistoryServer and local DataNode"
-            run_as_daemon_user "hdfs --daemon start datanode"
-            run_as_daemon_user "hdfs --daemon start secondarynamenode"
-            run_as_daemon_user "mapred --daemon start historyserver"
+            start_hadoop_daemon hdfs datanode
+            start_hadoop_daemon hdfs secondarynamenode
+            start_hadoop_daemon mapred historyserver
             ;;
         worker)
             log "Starting worker daemons (DataNode + NodeManager)"
-            run_as_daemon_user "hdfs --daemon start datanode"
-            run_as_daemon_user "yarn --daemon start nodemanager"
+            start_hadoop_daemon hdfs datanode
+            start_hadoop_daemon yarn nodemanager
             ;;
         standalone)
             format_namenode_if_needed
             log "Starting Standalone Pseudo-Distributed Hadoop services (NameNode, SecondaryNameNode, DataNode, ResourceManager, NodeManager, JobHistoryServer)"
-            run_as_daemon_user "hdfs --daemon start namenode"
-            run_as_daemon_user "hdfs --daemon start secondarynamenode"
-            run_as_daemon_user "hdfs --daemon start datanode"
-            run_as_daemon_user "yarn --daemon start resourcemanager"
-            run_as_daemon_user "yarn --daemon start nodemanager"
-            run_as_daemon_user "mapred --daemon start historyserver"
+            start_hadoop_daemon hdfs namenode
+            start_hadoop_daemon hdfs secondarynamenode
+            start_hadoop_daemon hdfs datanode
+            start_hadoop_daemon yarn resourcemanager
+            start_hadoop_daemon yarn nodemanager
+            start_hadoop_daemon mapred historyserver
             if [[ "${PRELOAD_TEST_DATA:-false}" == "true" ]]; then
                 preload_test_data
             fi

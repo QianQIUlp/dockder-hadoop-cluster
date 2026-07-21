@@ -29,8 +29,9 @@ x-hadoop-common-environment: &hadoop-common-environment
   HADOOP_PROXYUSER_ROOT_HOSTS: ${HADOOP_PROXYUSER_ROOT_HOSTS:-hadoop1,hadoop2,hadoop3,localhost}
   HADOOP_PROXYUSER_ROOT_GROUPS: ${HADOOP_PROXYUSER_ROOT_GROUPS:-root}
   HADOOP_DAEMON_USER: ${HADOOP_DAEMON_USER:-hadoop}
+  HADOOP_NICENESS: ${HADOOP_NICENESS:-10}
   ENABLE_SSH_USER_ENV: ${ENABLE_SSH_USER_ENV:-false}
-  AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE: ${AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE:-true}
+  AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE: ${AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE:-false}
   HADOOP_HEAPSIZE_MAX: ${HADOOP_HEAPSIZE_MAX:-}
   HADOOP_NAMENODE_OPTS: ${HADOOP_NAMENODE_OPTS:-}
   HADOOP_DATANODE_OPTS: ${HADOOP_DATANODE_OPTS:-}
@@ -49,6 +50,10 @@ x-hadoop-common-security: &hadoop-common-security
     - ALL
   cap_add:
     - NET_BIND_SERVICE
+    # Required for su to launch Hadoop daemons as the non-root hadoop account.
+    - SETUID
+    - SETGID
+    - CHOWN
   security_opt:
     - no-new-privileges:true
   restart: unless-stopped
@@ -82,6 +87,7 @@ services:
       <<: *hadoop-common-environment
       NODE_ROLE: namenode
       AUTO_FORMAT: ${AUTO_FORMAT_NAMENODE}
+      PRELOAD_TEST_DATA: ${PRELOAD_TEST_DATA:-true}
     ports:
       - "${HOST_BIND_IP:-127.0.0.1}:${NAMENODE_HTTP_PORT}:${NAMENODE_HTTP_PORT}"
       - "${HOST_BIND_IP:-127.0.0.1}:${NAMENODE_RPC_PORT}:${NAMENODE_RPC_PORT}"
@@ -89,6 +95,8 @@ services:
       # Mount all config templates once; entrypoint renders them to runtime conf.
       # 一次性挂载模板配置目录；entrypoint 会渲染到运行配置目录。
       - ./conf:${HADOOP_CONF_TEMPLATE_DIR}:ro
+      # Keep the published runtime aligned with the checked-out teaching logic.
+      - ./entrypoint.sh:/entrypoint.sh:ro
       - ssh_keys:${SSH_SHARED_DIR:-/shared-ssh}
       - hadoop1_name:${HDFS_NAMENODE_NAME_DIR}
       - hadoop1_data:${HDFS_DATANODE_DATA_DIR}
@@ -96,7 +104,7 @@ services:
     healthcheck:
       # NameNode is healthy when web endpoint responds and safemode is OFF.
       # 当 NameNode Web 端点可用且已退出安全模式时判定健康。
-      test: ["CMD-SHELL", "sh -ec 'pgrep -x sshd >/dev/null && curl -fsS http://127.0.0.1:${NAMENODE_HTTP_PORT}/ >/dev/null && safemode=\"$$(hdfs dfsadmin -safemode get 2>/dev/null)\" && case \"$$safemode\" in *\"Safe mode is OFF\"*) exit 0 ;; *) exit 1 ;; esac'"]
+      test: ["CMD-SHELL", "bash -lc 'pgrep -x sshd >/dev/null && pgrep -f [o]rg.apache.hadoop.hdfs.server.namenode.NameNode >/dev/null && pgrep -f [o]rg.apache.hadoop.hdfs.server.datanode.DataNode >/dev/null && curl -fsS http://127.0.0.1:${NAMENODE_HTTP_PORT}/ >/dev/null && safemode=\"$$(hdfs dfsadmin -safemode get 2>/dev/null)\" && [[ \"$$safemode\" == *\"Safe mode is OFF\"* ]]'"]
       interval: ${HEALTHCHECK_INTERVAL}
       timeout: ${HEALTHCHECK_TIMEOUT}
       retries: ${HEALTHCHECK_RETRIES}
@@ -117,6 +125,7 @@ services:
       - "${HOST_BIND_IP:-127.0.0.1}:${RESOURCEMANAGER_WEB_PORT}:${RESOURCEMANAGER_WEB_PORT}"
     volumes:
       - ./conf:${HADOOP_CONF_TEMPLATE_DIR}:ro
+      - ./entrypoint.sh:/entrypoint.sh:ro
       - ssh_keys:${SSH_SHARED_DIR:-/shared-ssh}
       - hadoop2_data:${HDFS_DATANODE_DATA_DIR}
       - hadoop2_yarn_local:${YARN_NODEMANAGER_LOCAL_DIR}
@@ -125,7 +134,7 @@ services:
     healthcheck:
       # RM node is healthy when RM API responds and local worker daemons are up.
       # 当 RM API 可用且本地 NodeManager/DataNode 已启动时判定健康。
-      test: ["CMD-SHELL", "bash -lc 'pgrep -x sshd >/dev/null && curl -fsS http://127.0.0.1:${RESOURCEMANAGER_WEB_PORT}/ws/v1/cluster/info >/dev/null && jps | grep -q NodeManager && jps | grep -q DataNode'"]
+      test: ["CMD-SHELL", "bash -lc 'pgrep -x sshd >/dev/null && curl -fsS http://127.0.0.1:${RESOURCEMANAGER_WEB_PORT}/ws/v1/cluster/info >/dev/null && pgrep -f [o]rg.apache.hadoop.yarn.server.resourcemanager.ResourceManager >/dev/null && pgrep -f [o]rg.apache.hadoop.yarn.server.nodemanager.NodeManager >/dev/null && pgrep -f [o]rg.apache.hadoop.hdfs.server.datanode.DataNode >/dev/null'"]
       interval: ${HEALTHCHECK_INTERVAL}
       timeout: ${HEALTHCHECK_TIMEOUT}
       retries: ${HEALTHCHECK_RETRIES}
@@ -152,6 +161,7 @@ services:
       - "${HOST_BIND_IP:-127.0.0.1}:${JOBHISTORY_WEB_PORT}:${JOBHISTORY_WEB_PORT}"
     volumes:
       - ./conf:${HADOOP_CONF_TEMPLATE_DIR}:ro
+      - ./entrypoint.sh:/entrypoint.sh:ro
       - ssh_keys:${SSH_SHARED_DIR:-/shared-ssh}
       - hadoop3_data:${HDFS_DATANODE_DATA_DIR}
       - hadoop3_tmp:${HADOOP_TMP_DIR}
@@ -160,7 +170,7 @@ services:
     healthcheck:
       # Secondary node is healthy when JobHistory web endpoint responds.
       # 当 JobHistory Web 端点可用，且本地核心进程存活时判定健康。
-      test: ["CMD-SHELL", "bash -lc 'pgrep -x sshd >/dev/null && curl -fsS http://127.0.0.1:${JOBHISTORY_WEB_PORT}/ >/dev/null && jps | grep -q SecondaryNameNode && jps | grep -q DataNode'"]
+      test: ["CMD-SHELL", "bash -lc 'pgrep -x sshd >/dev/null && curl -fsS http://127.0.0.1:${JOBHISTORY_WEB_PORT}/ >/dev/null && pgrep -f [o]rg.apache.hadoop.hdfs.server.namenode.SecondaryNameNode >/dev/null && pgrep -f [o]rg.apache.hadoop.mapreduce.v2.hs.JobHistoryServer >/dev/null && pgrep -f [o]rg.apache.hadoop.hdfs.server.datanode.DataNode >/dev/null'"]
       interval: ${HEALTHCHECK_INTERVAL}
       timeout: ${HEALTHCHECK_TIMEOUT}
       retries: ${HEALTHCHECK_RETRIES}

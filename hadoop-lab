@@ -1,0 +1,481 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${ROOT_DIR}"
+
+LAB_VERSION="$(tr -d '[:space:]' < VERSION)"
+DEFAULT_MODE="standalone"
+
+if [[ -t 1 ]] && [[ "${NO_COLOR:-}" == "" ]]; then
+    C_GREEN=$'\033[32m'
+    C_YELLOW=$'\033[33m'
+    C_RED=$'\033[31m'
+    C_BLUE=$'\033[34m'
+    C_BOLD=$'\033[1m'
+    C_RESET=$'\033[0m'
+else
+    C_GREEN="" C_YELLOW="" C_RED="" C_BLUE="" C_BOLD="" C_RESET=""
+fi
+
+info() { printf '%sℹ%s %s\n' "${C_BLUE}" "${C_RESET}" "$*"; }
+pass() { printf '%s✓%s %s\n' "${C_GREEN}" "${C_RESET}" "$*"; }
+warn() { printf '%s!%s %s\n' "${C_YELLOW}" "${C_RESET}" "$*" >&2; }
+fail() { printf '%s✗%s %s\n' "${C_RED}" "${C_RESET}" "$*" >&2; }
+die() { fail "$*"; exit 1; }
+
+usage() {
+    cat <<'EOF'
+Hadoop Lab — a student-friendly local Hadoop environment
+
+Usage:
+  ./hadoop-lab init
+  ./hadoop-lab doctor [standalone|cluster]
+  ./hadoop-lab up [standalone|cluster] [--build] [--secure] [--no-wait]
+  ./hadoop-lab status [--json]
+  ./hadoop-lab demo wordcount [--output HDFS_PATH]
+  ./hadoop-lab lesson list|start|check|reset [LESSON]
+  ./hadoop-lab shell [hadoop-standalone|hadoop1|hadoop2|hadoop3]
+  ./hadoop-lab logs [NODE] [--tail N]
+  ./hadoop-lab open [--launch]
+  ./hadoop-lab stop [standalone|cluster|all]
+  ./hadoop-lab restart [standalone|cluster]
+  ./hadoop-lab reset [standalone|cluster] [--data --yes]
+  ./hadoop-lab diagnose [OUTPUT.tar.gz]
+  ./hadoop-lab version
+
+Recommended first run:
+  ./hadoop-lab init
+  ./hadoop-lab doctor
+  ./hadoop-lab up standalone
+  ./hadoop-lab demo wordcount
+
+Use --build only after changing Dockerfile, entrypoint.sh or conf/.
+EOF
+}
+
+validate_mode() {
+    case "$1" in
+        standalone|cluster) return 0 ;;
+        *) die "Unknown mode '$1'. Choose standalone or cluster." ;;
+    esac
+}
+
+ensure_env() {
+    if [[ ! -f .env ]]; then
+        cp .env.example .env
+        pass "Created .env from the teaching defaults."
+    fi
+}
+
+env_value() {
+    local key="$1" default_value="$2" value
+    value="$(sed -n "s/^${key}=//p" .env 2>/dev/null | tail -n 1)"
+    value="${value%\"}"; value="${value#\"}"
+    printf '%s' "${value:-${default_value}}"
+}
+
+compose() {
+    local mode="$1"; shift
+    local args=(--env-file .env)
+    if [[ "${mode}" == "standalone" ]]; then
+        args+=(-f docker-compose.standalone.yml)
+    else
+        args+=(-f docker-compose.yml)
+        if [[ "${LAB_SECURE:-false}" == "true" ]]; then
+            args+=(-f docker-compose.secure.yml)
+        fi
+    fi
+    docker compose "${args[@]}" "$@"
+}
+
+require_docker() {
+    command -v docker >/dev/null 2>&1 || die "Docker was not found. Install Docker Desktop or Docker Engine first."
+    docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required. Run 'docker compose version' to verify it."
+    docker info >/dev/null 2>&1 || die "Docker is installed but the engine is not reachable. Start Docker Desktop or the Docker service."
+}
+
+detect_mode() {
+    local names
+    names="$(docker ps --format '{{.Names}}' 2>/dev/null || true)"
+    if grep -qx 'hadoop-standalone' <<<"${names}"; then
+        printf 'standalone'
+    elif grep -Eq '^hadoop[123]$' <<<"${names}"; then
+        printf 'cluster'
+    elif [[ -f .hadoop-lab-mode ]]; then
+        tr -d '[:space:]' < .hadoop-lab-mode
+    else
+        printf '%s' "${DEFAULT_MODE}"
+    fi
+}
+
+expected_containers() {
+    if [[ "$1" == "standalone" ]]; then
+        printf '%s\n' hadoop-standalone
+    else
+        printf '%s\n' hadoop1 hadoop2 hadoop3
+    fi
+}
+
+expected_processes() {
+    case "$1" in
+        hadoop-standalone) printf '%s\n' NameNode SecondaryNameNode DataNode ResourceManager NodeManager JobHistoryServer ;;
+        hadoop1) printf '%s\n' NameNode DataNode ;;
+        hadoop2) printf '%s\n' ResourceManager NodeManager DataNode ;;
+        hadoop3) printf '%s\n' SecondaryNameNode JobHistoryServer DataNode ;;
+    esac
+}
+
+daemon_pattern() {
+    case "$1" in
+        NameNode) printf 'org.apache.hadoop.hdfs.server.namenode.NameNode' ;;
+        SecondaryNameNode) printf 'org.apache.hadoop.hdfs.server.namenode.SecondaryNameNode' ;;
+        DataNode) printf 'org.apache.hadoop.hdfs.server.datanode.DataNode' ;;
+        ResourceManager) printf 'org.apache.hadoop.yarn.server.resourcemanager.ResourceManager' ;;
+        NodeManager) printf 'org.apache.hadoop.yarn.server.nodemanager.NodeManager' ;;
+        JobHistoryServer) printf 'org.apache.hadoop.mapreduce.v2.hs.JobHistoryServer' ;;
+    esac
+}
+
+container_has_daemon() {
+    local container="$1" daemon="$2" pattern
+    pattern="$(daemon_pattern "${daemon}")"
+    docker exec "${container}" pgrep -f "${pattern}" >/dev/null 2>&1
+}
+
+port_is_busy() {
+    local port="$1"
+    if command -v ss >/dev/null 2>&1; then
+        ss -ltnH 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:|\])${port}$"
+    elif command -v lsof >/dev/null 2>&1; then
+        lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1
+    else
+        return 1
+    fi
+}
+
+cmd_init() {
+    if [[ -f .env ]]; then
+        pass ".env already exists; kept your local settings."
+    else
+        cp .env.example .env
+        pass "Created .env with safe local teaching defaults."
+    fi
+    info "Default mode: standalone. Default bind address: 127.0.0.1."
+    info "Next: ./hadoop-lab doctor"
+}
+
+cmd_doctor() {
+    local mode="${1:-${DEFAULT_MODE}}" errors=0 warnings=0 memory_mb=""
+    validate_mode "${mode}"
+    printf '%sHadoop Lab doctor%s (%s)\n\n' "${C_BOLD}" "${C_RESET}" "${mode}"
+
+    if command -v docker >/dev/null 2>&1; then pass "Docker CLI found: $(docker --version)"; else fail "Docker CLI not found"; errors=$((errors + 1)); fi
+    if docker compose version >/dev/null 2>&1; then pass "$(docker compose version)"; else fail "Docker Compose v2 not available"; errors=$((errors + 1)); fi
+    if docker info >/dev/null 2>&1; then pass "Docker engine reachable"; else fail "Docker engine is not reachable; start Docker Desktop/service"; errors=$((errors + 1)); fi
+    if [[ -f .env ]]; then pass ".env is present"; else warn ".env is missing; run ./hadoop-lab init"; warnings=$((warnings + 1)); fi
+
+    if [[ "${errors}" -eq 0 ]] && [[ -f .env ]]; then
+        if compose "${mode}" config --quiet >/dev/null 2>&1; then pass "Compose configuration is valid"; else fail "Compose configuration is invalid; run 'docker compose config' for details"; errors=$((errors + 1)); fi
+    fi
+
+    if [[ -r /proc/meminfo ]]; then
+        memory_mb="$(awk '/MemAvailable:/ {printf "%d", $2 / 1024}' /proc/meminfo)"
+    elif command -v sysctl >/dev/null 2>&1; then
+        memory_mb="$(($(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1024 / 1024))"
+    fi
+    if [[ -n "${memory_mb}" ]]; then
+        local recommended=3072
+        [[ "${mode}" == "cluster" ]] && recommended=6144
+        if (( memory_mb >= recommended )); then pass "Available memory: ${memory_mb} MiB"; else warn "Available memory is ${memory_mb} MiB; ${mode} mode works best with at least ${recommended} MiB"; warnings=$((warnings + 1)); fi
+    fi
+
+    local running_names port key
+    running_names="$(docker ps --format '{{.Names}}' 2>/dev/null || true)"
+    if ! grep -Eq '^hadoop(1|2|3|-standalone)$' <<<"${running_names}"; then
+        for key in NAMENODE_HTTP_PORT RESOURCEMANAGER_WEB_PORT SECONDARY_NAMENODE_HTTP_PORT JOBHISTORY_WEB_PORT; do
+            port="$(env_value "${key}" "")"
+            if [[ -n "${port}" ]] && port_is_busy "${port}"; then warn "Port ${port} (${key}) is already in use"; warnings=$((warnings + 1)); fi
+        done
+    fi
+
+    printf '\n'
+    if (( errors > 0 )); then
+        fail "Doctor found ${errors} blocking problem(s) and ${warnings} warning(s)."
+        return 1
+    fi
+    pass "Ready for ${mode} mode (${warnings} warning(s))."
+    info "Next: ./hadoop-lab up ${mode}"
+}
+
+wait_until_ready() {
+    local mode="$1" started_at="${SECONDS}" deadline=$((SECONDS + 240)) container status runtime_status all_ready
+    info "Waiting for Hadoop health checks (up to 4 minutes)..."
+    while (( SECONDS < deadline )); do
+        all_ready=true
+        while IFS= read -r container; do
+            status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${container}" 2>/dev/null || echo missing)"
+            [[ "${status}" == "healthy" ]] || all_ready=false
+            runtime_status="$(docker inspect --format '{{.State.Status}}' "${container}" 2>/dev/null || echo missing)"
+            if (( SECONDS - started_at >= 60 )) && { [[ "${runtime_status}" == "exited" ]] || [[ "${runtime_status}" == "restarting" ]]; }; then
+                fail "${container} became ${status}. Inspect it with: ./hadoop-lab logs ${container}"
+                return 1
+            fi
+        done < <(expected_containers "${mode}")
+        if [[ "${all_ready}" == "true" ]]; then
+            pass "Hadoop ${mode} environment is ready."
+            return 0
+        fi
+        sleep 4
+    done
+    fail "Readiness timed out. Run './hadoop-lab status' and './hadoop-lab diagnose'."
+    return 1
+}
+
+cmd_up() {
+    local mode="${DEFAULT_MODE}" build=false wait=true
+    if [[ "${1:-}" == "standalone" ]] || [[ "${1:-}" == "cluster" ]]; then mode="$1"; shift; fi
+    validate_mode "${mode}"
+    LAB_SECURE=false
+    while (( $# > 0 )); do
+        case "$1" in
+            --build) build=true ;;
+            --secure) LAB_SECURE=true ;;
+            --no-wait) wait=false ;;
+            *) die "Unknown option for up: $1" ;;
+        esac
+        shift
+    done
+    [[ "${mode}" == "cluster" ]] || [[ "${LAB_SECURE}" != "true" ]] || die "--secure is only available for cluster mode."
+    ensure_env
+    require_docker
+    local running_names
+    running_names="$(docker ps --format '{{.Names}}' 2>/dev/null || true)"
+    if [[ "${mode}" == "standalone" ]] && grep -Eq '^hadoop[123]$' <<<"${running_names}"; then
+        die "Cluster mode is already running. Stop it first with './hadoop-lab stop cluster'."
+    fi
+    if [[ "${mode}" == "cluster" ]] && grep -qx 'hadoop-standalone' <<<"${running_names}"; then
+        die "Standalone mode is already running. Stop it first with './hadoop-lab stop standalone'."
+    fi
+    cmd_doctor "${mode}"
+
+    if [[ "${build}" == "true" ]]; then
+        info "Building the local image and starting ${mode} mode..."
+        compose "${mode}" up -d --build
+    else
+        info "Pulling the published image. Use --build only when you changed image sources."
+        if ! compose "${mode}" pull; then
+            die "Image pull failed. Check network/GHCR access, or use './hadoop-lab up ${mode} --build'."
+        fi
+        compose "${mode}" up -d --no-build
+    fi
+    printf '%s\n' "${mode}" > .hadoop-lab-mode
+    if [[ "${wait}" == "true" ]]; then wait_until_ready "${mode}"; fi
+    cmd_open false
+    info "Next lesson: ./hadoop-lab demo wordcount"
+}
+
+container_health() {
+    docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$1" 2>/dev/null || printf 'missing'
+}
+
+cmd_status_json() {
+    local mode="$1" container health first=true overall=healthy expected missing_json missing_first
+    while IFS= read -r container; do
+        health="$(container_health "${container}")"
+        [[ "${health}" == "healthy" ]] || overall=degraded
+        if [[ "${health}" == "healthy" ]]; then
+            while IFS= read -r expected; do container_has_daemon "${container}" "${expected}" || overall=degraded; done < <(expected_processes "${container}")
+        fi
+    done < <(expected_containers "${mode}")
+    printf '{"mode":"%s","overall":"%s","containers":[' "${mode}" "${overall}"
+    while IFS= read -r container; do
+        health="$(container_health "${container}")"
+        missing_json=""; missing_first=true
+        while IFS= read -r expected; do
+            if [[ "${health}" != "healthy" ]] || ! container_has_daemon "${container}" "${expected}"; then
+                [[ "${missing_first}" == "true" ]] || missing_json+=","
+                missing_first=false
+                missing_json+="\"${expected}\""
+            fi
+        done < <(expected_processes "${container}")
+        [[ "${first}" == "true" ]] || printf ','
+        first=false
+        printf '{"name":"%s","health":"%s","missingDaemons":[%s]}' "${container}" "${health}" "${missing_json}"
+    done < <(expected_containers "${mode}")
+    printf ']}\n'
+    [[ "${overall}" == "healthy" ]]
+}
+
+cmd_status() {
+    require_docker
+    local mode json=false container health expected missing=0
+    mode="$(detect_mode)"
+    if [[ "${1:-}" == "--json" ]]; then json=true; fi
+    if [[ "${json}" == "true" ]]; then cmd_status_json "${mode}"; return; fi
+
+    printf '%sHadoop Lab status%s (%s)\n\n' "${C_BOLD}" "${C_RESET}" "${mode}"
+    while IFS= read -r container; do
+        health="$(container_health "${container}")"
+        if [[ "${health}" == "healthy" ]]; then pass "${container}: healthy"; else fail "${container}: ${health}"; missing=$((missing + 1)); continue; fi
+        while IFS= read -r expected; do
+            if container_has_daemon "${container}" "${expected}"; then
+                printf '  %s✓%s %s\n' "${C_GREEN}" "${C_RESET}" "${expected}"
+            else
+                printf '  %s✗%s missing %s\n' "${C_RED}" "${C_RESET}" "${expected}"
+                missing=$((missing + 1))
+            fi
+        done < <(expected_processes "${container}")
+    done < <(expected_containers "${mode}")
+
+    if (( missing == 0 )); then
+        printf '\n'; pass "All expected containers and Hadoop daemons are healthy."
+        cmd_open false
+    else
+        printf '\n'; fail "Found ${missing} missing or unhealthy component(s)."
+        info "Run './hadoop-lab diagnose' or './hadoop-lab logs NODE'."
+        return 1
+    fi
+}
+
+cmd_demo() {
+    [[ "${1:-}" == "wordcount" ]] || die "Available demo: wordcount"
+    shift
+    exec "${ROOT_DIR}/examples/run-wordcount.sh" "$@"
+}
+
+cmd_lesson() {
+    exec "${ROOT_DIR}/scripts/lesson.sh" "$@"
+}
+
+cmd_shell() {
+    require_docker
+    local node="${1:-}"
+    if [[ -z "${node}" ]]; then
+        [[ "$(detect_mode)" == "standalone" ]] && node=hadoop-standalone || node=hadoop1
+    fi
+    case "${node}" in hadoop-standalone|hadoop1|hadoop2|hadoop3) ;; *) die "Unknown Hadoop node: ${node}" ;; esac
+    docker ps --format '{{.Names}}' | grep -qx "${node}" || die "${node} is not running."
+    exec docker exec -it -u hadoop "${node}" bash -l
+}
+
+cmd_logs() {
+    require_docker
+    local node="${1:-}" tail_lines=200
+    if [[ -n "${node}" ]] && [[ "${node}" != --* ]]; then shift; else node=""; fi
+    while (( $# > 0 )); do
+        case "$1" in --tail) tail_lines="${2:-}"; shift ;; *) die "Unknown logs option: $1" ;; esac; shift
+    done
+    [[ "${tail_lines}" =~ ^[0-9]+$ ]] || die "--tail must be a positive integer."
+    local mode; mode="$(detect_mode)"
+    if [[ -n "${node}" ]]; then
+        case "${node}" in hadoop-standalone|hadoop1|hadoop2|hadoop3) ;; *) die "Unknown Hadoop node: ${node}" ;; esac
+        docker logs --tail "${tail_lines}" "${node}"
+    else
+        compose "${mode}" logs --tail "${tail_lines}"
+    fi
+}
+
+cmd_open() {
+    local launch="${1:-false}" host port label url
+    ensure_env
+    while IFS='|' read -r label port; do
+        host="$(env_value HOST_BIND_IP 127.0.0.1)"; [[ "${host}" == "0.0.0.0" ]] && host=localhost
+        url="http://${host}:${port}"
+        printf '  %-22s %s\n' "${label}" "${url}"
+        if [[ "${launch}" == "true" ]]; then
+            if command -v xdg-open >/dev/null 2>&1; then xdg-open "${url}" >/dev/null 2>&1 || true
+            elif command -v open >/dev/null 2>&1; then open "${url}" >/dev/null 2>&1 || true
+            else warn "No browser launcher found; open the URL manually."; fi
+        fi
+    done <<EOF
+NameNode|$(env_value NAMENODE_HTTP_PORT 9870)
+YARN ResourceManager|$(env_value RESOURCEMANAGER_WEB_PORT 8088)
+JobHistory|$(env_value JOBHISTORY_WEB_PORT 19888)
+EOF
+}
+
+cmd_stop() {
+    ensure_env; require_docker
+    local target="${1:-$(detect_mode)}"
+    case "${target}" in
+        standalone|cluster) compose "${target}" down ;;
+        all) compose standalone down; compose cluster down ;;
+        *) die "Choose standalone, cluster or all." ;;
+    esac
+    pass "Stopped ${target}; named-volume data was preserved."
+}
+
+cmd_restart() {
+    ensure_env; require_docker
+    local mode="${1:-$(detect_mode)}"; validate_mode "${mode}"
+    compose "${mode}" restart
+    wait_until_ready "${mode}"
+}
+
+cmd_reset() {
+    ensure_env; require_docker
+    local mode="${DEFAULT_MODE}" data=false yes=false
+    if [[ "${1:-}" == "standalone" ]] || [[ "${1:-}" == "cluster" ]]; then mode="$1"; shift; fi
+    validate_mode "${mode}"
+    while (( $# > 0 )); do case "$1" in --data) data=true ;; --yes) yes=true ;; *) die "Unknown reset option: $1" ;; esac; shift; done
+    if [[ "${data}" != "true" ]]; then
+        compose "${mode}" down
+        pass "Reset runtime containers and network; Hadoop data was preserved."
+        return
+    fi
+    if [[ "${yes}" != "true" ]]; then
+        if [[ ! -t 0 ]]; then die "Data reset needs explicit confirmation: add --yes."; fi
+        warn "This removes only the named volumes declared by ${mode} mode. Hadoop lab data cannot be recovered."
+        read -r -p "Type RESET to continue: " answer
+        [[ "${answer}" == "RESET" ]] || die "Data reset cancelled."
+    fi
+    compose "${mode}" down --volumes --remove-orphans
+    pass "Removed ${mode} containers, network and declared Hadoop data volumes."
+}
+
+cmd_diagnose() {
+    ensure_env; require_docker
+    local output="${1:-diagnostics/hadoop-lab-$(date -u +%Y%m%dT%H%M%SZ).tar.gz}" mode temp_dir container
+    mode="$(detect_mode)"
+    mkdir -p "$(dirname "${output}")"
+    temp_dir="$(mktemp -d)"
+    trap 'rm -rf "${temp_dir}"' RETURN
+    {
+        printf 'Hadoop Lab %s\nGenerated: %s\nMode: %s\n' "${LAB_VERSION}" "$(date -u +%FT%TZ)" "${mode}"
+        docker version
+        docker compose version
+    } > "${temp_dir}/environment.txt" 2>&1
+    compose "${mode}" ps --all > "${temp_dir}/compose-ps.txt" 2>&1 || true
+    NO_COLOR=1 "$0" status > "${temp_dir}/status.txt" 2>&1 || true
+    while IFS= read -r container; do
+        docker inspect --format 'name={{.Name}} image={{.Config.Image}} status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}n/a{{end}} started={{.State.StartedAt}}' "${container}" > "${temp_dir}/${container}-state.txt" 2>&1 || true
+        docker logs --tail 250 "${container}" > "${temp_dir}/${container}.log" 2>&1 || true
+    done < <(expected_containers "${mode}")
+    tar -czf "${output}" -C "${temp_dir}" .
+    pass "Created redacted diagnostic bundle: ${output}"
+    info "The bundle excludes .env and full container environment values. Review it before sharing."
+}
+
+command_name="${1:-help}"
+shift || true
+case "${command_name}" in
+    help|-h|--help) usage ;;
+    init) cmd_init "$@" ;;
+    doctor) cmd_doctor "$@" ;;
+    up) cmd_up "$@" ;;
+    status) cmd_status "$@" ;;
+    demo) cmd_demo "$@" ;;
+    lesson) cmd_lesson "$@" ;;
+    shell) cmd_shell "$@" ;;
+    logs) cmd_logs "$@" ;;
+    open)
+        if [[ "${1:-}" == "--launch" ]]; then cmd_open true; else cmd_open false; fi
+        ;;
+    stop) cmd_stop "$@" ;;
+    restart) cmd_restart "$@" ;;
+    reset) cmd_reset "$@" ;;
+    diagnose) cmd_diagnose "$@" ;;
+    version|--version) printf 'Hadoop Lab %s (Hadoop %s)\n' "${LAB_VERSION}" "$(env_value HADOOP_VERSION 3.4.1)" ;;
+    *) fail "Unknown command: ${command_name}"; usage >&2; exit 2 ;;
+esac

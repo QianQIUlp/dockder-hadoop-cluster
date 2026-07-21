@@ -1,4 +1,4 @@
-## Description
+## What changed
 
 Please include a summary of the change and which issue is fixed. Also include relevant motivation and context. List any dependencies that are required for this change.
 
@@ -13,13 +13,14 @@ Please delete options that are not relevant.
 - [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
 - [ ] Documentation update
 
-## How Has This Been Tested?
+## How was this tested?
 
 Please describe the tests that you ran to verify your changes. Provide instructions so we can reproduce. Please also list any relevant details for your test configuration.
 
-- [ ] Local Cluster Test: Ran `docker-compose up -d` and checked Namenode health status.
-- [ ] Secure Profile Test: Verified secure config using `docker-compose -f docker-compose.secure.yml up -d`.
-- [ ] Environment Check: Verified custom configurations compile and apply in container configurations.
+- [ ] `shellcheck hadoop-lab scripts/*.sh examples/*.sh tests/*.sh`
+- [ ] `bash tests/test-cli.sh`
+- [ ] `./hadoop-lab up standalone` and the affected lesson check
+- [ ] `./hadoop-lab up cluster` when node placement or shared configuration changed
 
 ## Checklist
 

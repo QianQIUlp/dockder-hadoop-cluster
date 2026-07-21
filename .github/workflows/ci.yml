@@ -1,0 +1,84 @@
+name: Teaching Experience CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: teaching-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Check shell syntax and behavior
+        run: |
+          shellcheck hadoop-lab scripts/*.sh examples/*.sh tests/*.sh
+          bash tests/test-cli.sh
+      - name: Validate every Compose mode
+        run: |
+          docker compose --env-file .env.example -f docker-compose.standalone.yml config --quiet
+          docker compose --env-file .env.example -f docker-compose.yml config --quiet
+          docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.secure.yml config --quiet
+
+  standalone-smoke:
+    needs: static
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Start the published first-run path
+        run: |
+          ./hadoop-lab init
+          ./hadoop-lab up standalone
+      - name: Run and verify the first MapReduce lesson
+        run: |
+          ./hadoop-lab lesson start 02-mapreduce-wordcount
+          ./hadoop-lab lesson check 02-mapreduce-wordcount
+          ./hadoop-lab status --json
+      - name: Preserve diagnostic evidence on failure
+        if: failure()
+        run: ./hadoop-lab diagnose diagnostics/standalone-ci.tar.gz || true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
+        if: failure()
+        with:
+          name: standalone-diagnostics
+          path: diagnostics/standalone-ci.tar.gz
+          if-no-files-found: ignore
+      - name: Stop while preserving volumes
+        if: always()
+        run: ./hadoop-lab stop standalone || true
+
+  cluster-smoke:
+    needs: static
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Start and verify the three-node role model
+        run: |
+          ./hadoop-lab init
+          ./hadoop-lab up cluster
+          ./hadoop-lab lesson check 04-cluster-roles
+          ./hadoop-lab status --json
+      - name: Preserve diagnostic evidence on failure
+        if: failure()
+        run: ./hadoop-lab diagnose diagnostics/cluster-ci.tar.gz || true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
+        if: failure()
+        with:
+          name: cluster-diagnostics
+          path: diagnostics/cluster-ci.tar.gz
+          if-no-files-found: ignore
+      - name: Stop while preserving volumes
+        if: always()
+        run: ./hadoop-lab stop cluster || true

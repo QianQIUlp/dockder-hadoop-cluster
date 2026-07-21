@@ -23,7 +23,8 @@ services:
         HADOOP_ARCHIVE_AMD64: ${HADOOP_ARCHIVE_AMD64:-}
         HADOOP_ARCHIVE_ARM64: ${HADOOP_ARCHIVE_ARM64:-}
         AWS_SDK_BUNDLE_VERSION: ${AWS_SDK_BUNDLE_VERSION:-2.41.30}
-    image: ${IMAGE_NAME}:${IMAGE_TAG}-standalone
+    # The same multi-role image powers both modes. The role is selected below.
+    image: ${IMAGE_NAME}:${IMAGE_TAG}
     container_name: hadoop-standalone
     hostname: hadoop-standalone
     environment:
@@ -55,8 +56,9 @@ services:
       HADOOP_PROXYUSER_ROOT_HOSTS: "hadoop-standalone,localhost"
       HADOOP_PROXYUSER_ROOT_GROUPS: ${HADOOP_PROXYUSER_ROOT_GROUPS:-root}
       HADOOP_DAEMON_USER: ${HADOOP_DAEMON_USER:-hadoop}
+      HADOOP_NICENESS: ${HADOOP_NICENESS:-10}
       ENABLE_SSH_USER_ENV: ${ENABLE_SSH_USER_ENV:-false}
-      AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE: ${AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE:-true}
+      AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE: ${AUTO_RESET_DATANODE_DATA_ON_VERSION_CHANGE:-false}
       
       # Specific standalone variables
       NODE_ROLE: standalone
@@ -64,13 +66,13 @@ services:
       PRELOAD_TEST_DATA: "true"
       
       # Keep resources reasonable
-      HADOOP_HEAPSIZE_MAX: ${HADOOP_HEAPSIZE_MAX:-1024}
-      HADOOP_NAMENODE_OPTS: ${HADOOP_NAMENODE_OPTS:--Xms512m -Xmx1024m}
-      HADOOP_DATANODE_OPTS: ${HADOOP_DATANODE_OPTS:--Xms256m -Xmx768m}
-      HADOOP_SECONDARYNAMENODE_OPTS: ${HADOOP_SECONDARYNAMENODE_OPTS:--Xms256m -Xmx512m}
-      YARN_RESOURCEMANAGER_OPTS: ${YARN_RESOURCEMANAGER_OPTS:--Xms256m -Xmx768m}
-      YARN_NODEMANAGER_OPTS: ${YARN_NODEMANAGER_OPTS:--Xms256m -Xmx512m}
-      MAPRED_HISTORYSERVER_OPTS: ${MAPRED_HISTORYSERVER_OPTS:--Xms256m -Xmx512m}
+      HADOOP_HEAPSIZE_MAX: ${STANDALONE_HEAPSIZE_MAX:-512}
+      HADOOP_NAMENODE_OPTS: ${STANDALONE_NAMENODE_OPTS:--Xms256m -Xmx512m}
+      HADOOP_DATANODE_OPTS: ${STANDALONE_DATANODE_OPTS:--Xms128m -Xmx384m}
+      HADOOP_SECONDARYNAMENODE_OPTS: ${STANDALONE_SECONDARYNAMENODE_OPTS:--Xms128m -Xmx256m}
+      YARN_RESOURCEMANAGER_OPTS: ${STANDALONE_RESOURCEMANAGER_OPTS:--Xms128m -Xmx384m}
+      YARN_NODEMANAGER_OPTS: ${STANDALONE_NODEMANAGER_OPTS:--Xms128m -Xmx384m}
+      MAPRED_HISTORYSERVER_OPTS: ${STANDALONE_HISTORYSERVER_OPTS:--Xms128m -Xmx256m}
     ports:
       # Map NameNode Ports
       - "${HOST_BIND_IP:-127.0.0.1}:${NAMENODE_HTTP_PORT:-9870}:${NAMENODE_HTTP_PORT:-9870}"
@@ -83,6 +85,8 @@ services:
       - "${HOST_BIND_IP:-127.0.0.1}:${JOBHISTORY_WEB_PORT:-19888}:${JOBHISTORY_WEB_PORT:-19888}"
     volumes:
       - ./conf:${HADOOP_CONF_TEMPLATE_DIR}:ro
+      # The public image supplies Hadoop; this checkout supplies current lab behavior.
+      - ./entrypoint.sh:/entrypoint.sh:ro
       - standalone_ssh_keys:${SSH_SHARED_DIR:-/shared-ssh}
       - standalone_name:${HDFS_NAMENODE_NAME_DIR}
       - standalone_data:${HDFS_DATANODE_DATA_DIR}
@@ -92,7 +96,7 @@ services:
       - standalone_history_tmp:${MAPRED_HISTORY_TMP_DIR}
       - standalone_history_done:${MAPRED_HISTORY_DONE_DIR}
     healthcheck:
-      test: ["CMD-SHELL", "sh -ec 'pgrep -x sshd >/dev/null && curl -fsS http://127.0.0.1:${NAMENODE_HTTP_PORT:-9870}/ >/dev/null && safemode=\"$$(hdfs dfsadmin -safemode get 2>/dev/null)\" && case \"$$safemode\" in *\"Safe mode is OFF\"*) exit 0 ;; *) exit 1 ;; esac'"]
+      test: ["CMD-SHELL", "bash -lc 'pgrep -x sshd >/dev/null && pgrep -f [o]rg.apache.hadoop.hdfs.server.namenode.NameNode >/dev/null && pgrep -f [o]rg.apache.hadoop.hdfs.server.namenode.SecondaryNameNode >/dev/null && pgrep -f [o]rg.apache.hadoop.hdfs.server.datanode.DataNode >/dev/null && pgrep -f [o]rg.apache.hadoop.yarn.server.resourcemanager.ResourceManager >/dev/null && pgrep -f [o]rg.apache.hadoop.yarn.server.nodemanager.NodeManager >/dev/null && pgrep -f [o]rg.apache.hadoop.mapreduce.v2.hs.JobHistoryServer >/dev/null && curl -fsS http://127.0.0.1:${NAMENODE_HTTP_PORT:-9870}/ >/dev/null && curl -fsS http://127.0.0.1:${RESOURCEMANAGER_WEB_PORT:-8088}/ws/v1/cluster/info >/dev/null && safemode=\"$$(hdfs dfsadmin -safemode get 2>/dev/null)\" && [[ \"$$safemode\" == *\"Safe mode is OFF\"* ]]'"]
       interval: ${HEALTHCHECK_INTERVAL:-20s}
       timeout: ${HEALTHCHECK_TIMEOUT:-8s}
       retries: ${HEALTHCHECK_RETRIES:-15}
@@ -105,6 +109,9 @@ services:
       - ALL
     cap_add:
       - NET_BIND_SERVICE
+      - SETUID
+      - SETGID
+      - CHOWN
     security_opt:
       - no-new-privileges:true
     restart: unless-stopped

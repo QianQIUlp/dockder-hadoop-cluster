@@ -11,55 +11,60 @@ Here is a set of guidelines and instructions to help you get started with contri
 - If not, create a new issue using our **Bug Report** or **Feature Request** templates.
 
 ### 2. Local Development Environment
-To test your changes locally, make sure you have:
-- Docker installed and running.
-- Docker Compose installed.
+To test changes locally, install Docker with Compose v2 and ShellCheck.
 
 Follow these steps to set up the cluster locally:
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/dockder-hadoop-cluster.git
-   cd dockder-hadoop-cluster
+   git clone https://github.com/YOUR_USERNAME/docker-hadoop-cluster.git
+   cd docker-hadoop-cluster
    ```
 
-2. **Initialize Environment Variables:**
-   Copy the example environment file to `.env`:
+2. **Initialize and check the environment:**
    ```bash
-   cp .env.example .env
+   ./hadoop-lab init
+   ./hadoop-lab doctor
    ```
-   You can customize the Hadoop version or port mapping in the `.env` file if needed.
 
-3. **Build the Shared Base Image:**
-   Build the Hadoop cluster image locally:
+3. **Run static checks:**
    ```bash
-   docker-compose build
+   shellcheck hadoop-lab entrypoint.sh scripts/*.sh examples/*.sh tests/*.sh
+   bash tests/test-cli.sh
+   docker compose --env-file .env.example -f docker-compose.standalone.yml config --quiet
+   docker compose --env-file .env.example -f docker-compose.yml config --quiet
    ```
 
-4. **Spin up the Cluster:**
-   - For the standard 3-node cluster:
-     ```bash
-     ./scripts/up.sh
-     ```
-   - For the lightweight single-node standalone cluster:
-     ```bash
-     docker compose -f docker-compose.standalone.yml up -d
-     ```
+4. **Exercise the affected runtime path:**
+   ```bash
+   ./hadoop-lab up standalone
+   ./hadoop-lab lesson start 02-mapreduce-wordcount
+   ./hadoop-lab lesson check 02-mapreduce-wordcount
+   ```
+
+   Changes to shared role/configuration logic should also pass:
+
+   ```bash
+   ./hadoop-lab stop standalone
+   ./hadoop-lab up cluster
+   ./hadoop-lab lesson check 04-cluster-roles
+   ```
 
 5. **Verify the Installation:**
    - Access the NameNode Web UI: [http://localhost:9870](http://localhost:9870)
    - Access the YARN ResourceManager Web UI: [http://localhost:8088](http://localhost:8088)
    - Access the JobHistory Server Web UI: [http://localhost:19888](http://localhost:19888)
 
-6. **Check Cluster Health & Use Helpers:**
-   - Use our built-in checker to verify health, Java processes, and cluster statistics:
-     ```bash
-     ./scripts/status.sh
-     ```
-   - Access the interactive container shell as the secure `hadoop` user:
-     ```bash
-     ./scripts/shell.sh
-     ```
+6. **Collect evidence and clean up:**
+   ```bash
+   ./hadoop-lab status
+   ./hadoop-lab diagnose
+   ./hadoop-lab stop all
+   ```
+
+Use `./hadoop-lab up MODE --build` only when the image contents changed. Do not
+delete named volumes as part of a routine test; use the confirmed reset flow
+only for disposable lab data.
 
 ### 3. Security Audits (Trivy Scan)
 We enforce strict security checks in our CI using Trivy to scan the built images.

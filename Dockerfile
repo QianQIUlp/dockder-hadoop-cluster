@@ -132,10 +132,11 @@ RUN apt-get update -o Acquire::Retries=3 && \
 FROM eclipse-temurin:11-jre-jammy
 
 ARG HADOOP_VERSION=3.4.1
-ARG IMAGE_SOURCE=https://github.com/QianQIUlp/dockder-hadoop-cluster
+ARG IMAGE_SOURCE=https://github.com/QianQIUlp/docker-hadoop-cluster
 
 LABEL org.opencontainers.image.source="${IMAGE_SOURCE}" \
-    org.opencontainers.image.title="dockder-hadoop-cluster"
+    org.opencontainers.image.title="docker-hadoop-cluster" \
+    org.opencontainers.image.description="A repeatable local Hadoop lab for teaching HDFS, YARN and MapReduce"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     JAVA_HOME=/opt/java/openjdk \

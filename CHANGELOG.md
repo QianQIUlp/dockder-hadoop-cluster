@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-07-19
+
+### Added
+
+- One `hadoop-lab` lifecycle CLI with preflight checks, readiness waits,
+  role-aware health evidence, JSON status, logs, redacted diagnostics and
+  confirmation-gated data reset; PowerShell and legacy wrappers use the same
+  behavior.
+- Seven guided lessons covering first-run observation, HDFS, MapReduce, YARN,
+  three-node placement, recoverable node failure and externalized configuration.
+- Static CLI tests plus standalone and three-node runtime smoke tests in CI.
+- Architecture, configuration, operations, troubleshooting, teaching and
+  portfolio documentation.
+
+### Changed
+
+- Published GHCR image and standalone mode are now the default first-run path;
+  local image builds are explicit.
+- README content is organized around student outcomes, learning modes, evidence
+  and recovery rather than a feature/configuration inventory.
+- Canonical repository metadata now consistently uses `docker-hadoop-cluster`.
+
+### Fixed
+
+- Standalone mode no longer requests an unpublished `-standalone` image tag.
+- Compose mounts the checked-out entrypoint read-only so the published Hadoop
+  runtime follows the repository's current standalone and recovery behavior.
+- Runtime capabilities now allow Hadoop daemons to remain on the non-root
+  `hadoop` account and receive their runtime SSH files instead of silently
+  falling back to root.
+- Standalone mode has a separate lower heap budget; Hadoop daemons use a
+  positive niceness value that works without privileged scheduling capability.
+- Three-node mode preloads the same namespaced teaching input as standalone.
+- WordCount no longer removes a generic `/output` HDFS path.
+- Existing NameNode/DataNode volumes are no longer erased automatically when an
+  image-version marker differs or is missing.
+- MapReduce containers receive `HADOOP_MAPRED_HOME`, and sample preloading
+  repairs a partially created `/input` directory file by file.
+- Health/status checks use Hadoop Java class processes rather than the JDK-only
+  `jps` utility, which is intentionally absent from the smaller JRE image.
+- Named-volume roots are assigned to the non-root daemon user so DataNode's
+  permission validation succeeds without broad filesystem capabilities.
+
 ## [1.3.0] - 2026-05-27
 
 ### Added
