@@ -140,12 +140,26 @@ flowchart LR
 - [故障排查决策表](docs/troubleshooting.md)
 - [90 分钟教学建议](docs/teaching-guide.md)
 - [个人网站展示素材](docs/project-showcase.md)
+- [项目介绍站与 Cloudflare Pages 部署](docs/site-deployment.md)
+
+## 项目介绍站
+
+[`site/`](site/) 是零依赖的中英文静态介绍站。Cloudflare Pages 只发布这套介绍页面；Hadoop Lab 仍在使用者本机通过 Docker 运行，源代码仍由 GitHub 托管。
+
+本地预览：
+
+```bash
+python3 -m http.server 4173 --directory site
+```
+
+然后打开 <http://localhost:4173>。Cloudflare Pages 的 `main` 分支、构建命令、输出目录与首次 GitHub 授权步骤见[部署说明](docs/site-deployment.md)。
 
 ## 开发与验证
 
 ```bash
 shellcheck hadoop-lab scripts/*.sh examples/*.sh
 bash tests/test-cli.sh
+bash tests/test-site.sh
 docker compose --env-file .env.example -f docker-compose.standalone.yml config --quiet
 docker compose --env-file .env.example -f docker-compose.yml config --quiet
 ```

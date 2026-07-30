@@ -1,0 +1,17 @@
+{
+  "name": "Hadoop Lab",
+  "short_name": "Hadoop Lab",
+  "description": "A repeatable local learning path for Hadoop setup, observation, MapReduce, failure, and recovery.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f3ed",
+  "theme_color": "#111827",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

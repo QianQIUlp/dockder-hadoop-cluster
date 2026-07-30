@@ -24,6 +24,7 @@ jobs:
         run: |
           shellcheck hadoop-lab scripts/*.sh examples/*.sh tests/*.sh
           bash tests/test-cli.sh
+          bash tests/test-site.sh
       - name: Validate every Compose mode
         run: |
           docker compose --env-file .env.example -f docker-compose.standalone.yml config --quiet

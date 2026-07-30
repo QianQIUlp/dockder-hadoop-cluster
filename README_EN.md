@@ -108,12 +108,26 @@ Stopping preserves named volumes. Only `reset MODE --data` deletes the selected 
 - [Troubleshooting guide](docs/troubleshooting.md)
 - [90-minute teaching guide](docs/teaching-guide.md)
 - [Portfolio source material](docs/project-showcase.md)
+- [Project site and Cloudflare Pages deployment](docs/site-deployment.md)
+
+## Project site
+
+[`site/`](site/) contains the zero-dependency English and Chinese project site. Cloudflare Pages publishes only these introduction pages; Hadoop Lab still runs locally through Docker, and GitHub remains the source host.
+
+Preview it locally:
+
+```bash
+python3 -m http.server 4173 --directory site
+```
+
+Then open <http://localhost:4173>. See the [deployment runbook](docs/site-deployment.md) for the `main` production branch, build command, output directory, and one-time GitHub authorization steps.
 
 ## Development verification
 
 ```bash
 shellcheck hadoop-lab scripts/*.sh examples/*.sh
 bash tests/test-cli.sh
+bash tests/test-site.sh
 docker compose --env-file .env.example -f docker-compose.standalone.yml config --quiet
 docker compose --env-file .env.example -f docker-compose.yml config --quiet
 ```
