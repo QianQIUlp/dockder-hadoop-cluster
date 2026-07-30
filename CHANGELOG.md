@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- A zero-dependency bilingual project site in `site/`, ready for Cloudflare Pages Git deployment from `main` with security headers and local static checks.
+- A Cloudflare Pages deployment runbook covering the one-time GitHub connection, preview branches, custom domains, and post-deployment verification.
+
 ## [2.0.0] - 2026-07-19
 
 ### Added
